@@ -912,3 +912,43 @@ button {
   font-size: 14px;
   line-height: 1.6;
 }
+
+/* ---------- Install banner ---------- */
+.install-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.install-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.install-btn {
+  background: var(--white);
+  color: #0a0a0b;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 13px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.install-x {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+.install-x:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}

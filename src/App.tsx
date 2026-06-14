@@ -8,6 +8,7 @@ import { TransactionList } from './components/TransactionList'
 import { Categories } from './components/Categories'
 import { ImportCsv } from './components/ImportCsv'
 import { TransactionSheet } from './components/TransactionSheet'
+import { InstallBanner } from './components/InstallBanner'
 import { Icon } from './components/Icon'
 
 type Tab = 'dashboard' | 'transactions' | 'categories' | 'import'
@@ -58,6 +59,8 @@ export default function App() {
           </div>
         )}
       </header>
+
+      <InstallBanner />
 
       <main className="app-body">
         {!ready ? (
