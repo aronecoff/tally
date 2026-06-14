@@ -10,7 +10,9 @@ import { Categories } from './components/Categories'
 import { ImportCsv } from './components/ImportCsv'
 import { TransactionSheet } from './components/TransactionSheet'
 import { InstallBanner } from './components/InstallBanner'
+import { Account } from './components/Account'
 import { Icon } from './components/Icon'
+import { initSync } from './sync/sync'
 
 type Tab = 'dashboard' | 'transactions' | 'categories' | 'import'
 
@@ -31,10 +33,11 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const { theme, toggle } = useTheme()
 
-  const categories = useLiveQuery(() => db.categories.toArray(), [], [])
+  const categories = useLiveQuery(() => db.categories.filter((c) => !c.deleted).toArray(), [], [])
 
   useEffect(() => {
     seedIfEmpty().finally(() => setReady(true))
+    initSync()
   }, [])
 
   const showMonthNav = tab === 'dashboard' || tab === 'transactions'
@@ -78,6 +81,7 @@ export default function App() {
                 <button className="icon-btn" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month">›</button>
               </div>
             )}
+            <Account />
             <button className="theme-toggle" onClick={toggle} aria-label="Toggle light or dark">
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
             </button>

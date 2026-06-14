@@ -66,7 +66,7 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
     if (type !== 'expense' || categoryId == null) return 0
     const rows = await db.transactions.where('categoryId').equals(categoryId).toArray()
     return rows
-      .filter((r) => r.type === 'expense' && r.date.startsWith(monthOfDate) && r.id !== initial?.id)
+      .filter((r) => r.type === 'expense' && !r.deleted && r.date.startsWith(monthOfDate) && r.id !== initial?.id)
       .reduce((s, r) => s + r.amount, 0)
   }, [type, categoryId, monthOfDate, initial?.id], 0)
 
@@ -99,7 +99,7 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
   async function remove() {
     if (editing && initial?.id != null) {
       if (!window.confirm('Delete this transaction?')) return
-      await db.transactions.delete(initial.id)
+      await db.transactions.update(initial.id, { deleted: true, updatedAt: Date.now() })
       onClose()
     }
   }

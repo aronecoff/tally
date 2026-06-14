@@ -93,7 +93,7 @@ export function ImportCsv({ categories, onDone }: Props) {
     const existing = await db.transactions.toArray()
     const key = (t: { date: string; amount: number; type: string; note: string }) =>
       `${t.date}|${t.amount}|${t.type}|${t.note.trim().toLowerCase()}`
-    const seen = new Set(existing.map(key))
+    const seen = new Set(existing.filter((t) => !t.deleted).map(key))
 
     const fresh = staged.filter((s) => {
       const k = key(s)

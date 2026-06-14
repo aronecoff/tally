@@ -40,6 +40,7 @@ export function Dashboard({ month, categories }: Props) {
     let income = 0
     let expense = 0
     for (const t of txns) {
+      if (t.deleted) continue
       if (t.type === 'income') income += t.amount
       else {
         expense += t.amount
