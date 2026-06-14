@@ -1,7 +1,22 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="114" fill="#0a0a0b"/>
-  <circle cx="256" cy="256" r="138" fill="none" stroke="#2a2a2e" stroke-width="26"/>
-  <path d="M256 118 a138 138 0 0 1 119.6 207"
-        fill="none" stroke="#fafafa" stroke-width="26" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="20" fill="#fafafa"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8e9bff"/>
+      <stop offset="0.55" stop-color="#5b54f0"/>
+      <stop offset="1" stop-color="#341f86"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.32" cy="0.18" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#gloss)"/>
+  <g stroke="#ffffff" stroke-width="26" stroke-linecap="round">
+    <path d="M196 178V334"/>
+    <path d="M238 178V334"/>
+    <path d="M280 178V334"/>
+    <path d="M322 178V334"/>
+    <path d="M176 346 342 166"/>
+  </g>
 </svg>
