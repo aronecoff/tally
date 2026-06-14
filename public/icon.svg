@@ -1,22 +1,20 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#8e9bff"/>
-      <stop offset="0.55" stop-color="#5b54f0"/>
-      <stop offset="1" stop-color="#341f86"/>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
     </linearGradient>
-    <radialGradient id="gloss" cx="0.32" cy="0.18" r="0.85">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.4"/>
-      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="17"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
-  <rect width="512" height="512" rx="116" fill="url(#gloss)"/>
-  <g stroke="#ffffff" stroke-width="26" stroke-linecap="round">
-    <path d="M196 178V334"/>
-    <path d="M238 178V334"/>
-    <path d="M280 178V334"/>
-    <path d="M322 178V334"/>
-    <path d="M176 346 342 166"/>
+  <rect width="512" height="512" rx="116" fill="#09090f"/>
+  <g filter="url(#glow)" opacity="0.55">
+    <rect x="146" y="150" width="220" height="54" rx="27" fill="url(#t)"/>
+    <rect x="229" y="150" width="54" height="232" rx="27" fill="url(#t)"/>
+  </g>
+  <g fill="url(#t)">
+    <rect x="146" y="150" width="220" height="54" rx="27"/>
+    <rect x="229" y="150" width="54" height="232" rx="27"/>
   </g>
 </svg>
