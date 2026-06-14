@@ -82,6 +82,7 @@ export function Dashboard({ month, categories }: Props) {
 
   return (
     <div className="dash">
+      <div className="dash-left">
       <div className="hero">
         <span className="hero-label">Spent in {monthLabel(month).split(' ')[0]}</span>
         <span className="hero-num num">{money(expense)}</span>
@@ -130,6 +131,9 @@ export function Dashboard({ month, categories }: Props) {
         </div>
       </div>
 
+      </div>
+
+      <div className="dash-right">
       <div className="section-title">
         <span>Spending limits</span>
       </div>
@@ -179,6 +183,7 @@ export function Dashboard({ month, categories }: Props) {
           })}
         </ul>
       )}
+      </div>
     </div>
   )
 }
