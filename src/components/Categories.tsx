@@ -36,9 +36,11 @@ export function Categories({ categories }: Props) {
           <span>Expense categories</span>
           <button className="btn-ghost" onClick={() => addCategory('expense')}>＋ Add</button>
         </div>
-        {expense.map((c) => (
-          <CategoryEditor key={c.id} category={c} showLimit />
-        ))}
+        <div className="cats-card">
+          {expense.map((c) => (
+            <CategoryEditor key={c.id} category={c} showLimit />
+          ))}
+        </div>
       </div>
 
       <div className="cats-section">
@@ -46,9 +48,11 @@ export function Categories({ categories }: Props) {
           <span>Income categories</span>
           <button className="btn-ghost" onClick={() => addCategory('income')}>＋ Add</button>
         </div>
-        {income.map((c) => (
-          <CategoryEditor key={c.id} category={c} showLimit={false} />
-        ))}
+        <div className="cats-card">
+          {income.map((c) => (
+            <CategoryEditor key={c.id} category={c} showLimit={false} />
+          ))}
+        </div>
       </div>
     </div>
   )
