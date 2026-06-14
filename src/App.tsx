@@ -87,21 +87,25 @@ export default function App() {
         <InstallBanner />
 
         <main className="app-body">
-          {!ready ? (
-            <p className="empty">Loading…</p>
-          ) : tab === 'dashboard' ? (
-            <Dashboard month={month} categories={categories} />
-          ) : tab === 'transactions' ? (
-            <TransactionList
-              month={month}
-              categories={categories}
-              onEdit={(t) => setSheet({ mode: 'edit', txn: t })}
-            />
-          ) : tab === 'categories' ? (
-            <Categories categories={categories} />
-          ) : (
-            <ImportCsv categories={categories} onDone={() => setTab('transactions')} />
-          )}
+          <div className="app-scroll">
+            <div className="view" key={tab}>
+              {!ready ? (
+                <p className="empty">Loading…</p>
+              ) : tab === 'dashboard' ? (
+                <Dashboard month={month} categories={categories} />
+              ) : tab === 'transactions' ? (
+                <TransactionList
+                  month={month}
+                  categories={categories}
+                  onEdit={(t) => setSheet({ mode: 'edit', txn: t })}
+                />
+              ) : tab === 'categories' ? (
+                <Categories categories={categories} />
+              ) : (
+                <ImportCsv categories={categories} onDone={() => setTab('transactions')} />
+              )}
+            </div>
+          </div>
         </main>
 
         {showMonthNav && (

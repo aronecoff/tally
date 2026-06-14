@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction, type TxType } from '../db/db'
 import { todayISO } from '../lib/dates'
@@ -22,20 +22,34 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
   const [note, setNote] = useState(initial?.note ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
   const [touchedCategory, setTouchedCategory] = useState(editing)
+  const guessedOnce = useRef(editing)
 
   const visibleCategories = useMemo(
     () => categories.filter((c) => c.kind === type).sort((a, b) => a.sortOrder - b.sortOrder),
     [categories, type],
   )
 
-  // Auto-suggest a category from the note until the user picks one themselves.
+  // Auto-suggest a category from the note — but only once, and never after the
+  // user has picked one, so it never fights their choice.
   useEffect(() => {
-    if (touchedCategory) return
+    if (touchedCategory || guessedOnce.current) return
     const guess = guessCategoryName(note)
     if (!guess) return
     const match = visibleCategories.find((c) => c.name === guess)
-    if (match) setCategoryId(match.id ?? null)
+    if (match) {
+      setCategoryId(match.id ?? null)
+      guessedOnce.current = true
+    }
   }, [note, touchedCategory, visibleCategories])
+
+  // Esc closes the sheet.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   useEffect(() => {
     if (categoryId == null) return
@@ -112,13 +126,18 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
           <span className="currency">$</span>
           <input
             inputMode="decimal"
-            type="number"
-            min="0"
-            step="0.01"
+            type="text"
             placeholder="0"
             value={amount}
             autoFocus
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              // Strip anything but digits and a single decimal point (handles
+              // pasted "1,234.56", currency symbols, etc.).
+              let v = e.target.value.replace(/[^\d.]/g, '')
+              const dot = v.indexOf('.')
+              if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '')
+              setAmount(v)
+            }}
             onKeyDown={(e) => e.key === 'Enter' && save()}
           />
         </div>

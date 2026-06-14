@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category } from '../db/db'
 import { money } from '../lib/format'
@@ -78,13 +78,19 @@ export function Dashboard({ month, categories }: Props) {
   const totalPct = hasLimit ? Math.min(100, (expense / totalLimit) * 100) : 0
   const totalOver = hasLimit && expense > totalLimit
   const left = totalLimit - expense
-  const heroColor = totalOver ? 'var(--over)' : 'var(--white)'
+  const heroColor = totalOver ? 'var(--over)' : 'var(--accent)'
+
+  // "Spent in June" — but show the year too when viewing a different year.
+  const labelParts = monthLabel(month).split(' ')
+  const heroPeriod = labelParts[1] === String(new Date().getFullYear())
+    ? labelParts[0]
+    : `${labelParts[0]} ${labelParts[1]}`
 
   return (
     <div className="dash">
       <div className="dash-left">
       <div className="hero">
-        <span className="hero-label">Spent in {monthLabel(month).split(' ')[0]}</span>
+        <span className="hero-label">Spent in {heroPeriod}</span>
         <span className="hero-num num">{money(expense)}</span>
         {hasLimit && (
           <>
@@ -142,7 +148,7 @@ export function Dashboard({ month, categories }: Props) {
         <p className="empty">Nothing tracked yet this month.<br />Tap ＋ to add a transaction.</p>
       ) : (
         <ul className="limit-list">
-          {rows.map((r) => {
+          {rows.map((r, i) => {
             const name = r.category?.name ?? 'Uncategorized'
             const icon = r.category?.icon ?? 'tag'
             const has = r.limit > 0
@@ -151,7 +157,7 @@ export function Dashboard({ month, categories }: Props) {
               r.status === 'over' ? 'var(--over)' : r.status === 'near' ? 'var(--near)' : 'var(--text-2)'
             const remaining = r.limit - r.spent
             return (
-              <li key={r.category?.id ?? 'uncat'} className="limit-row">
+              <li key={r.category?.id ?? 'uncat'} className="limit-row" style={{ ['--i' as string]: i } as CSSProperties}>
                 <span className="cat-tile">
                   <Icon name={icon} size={18} />
                 </span>
