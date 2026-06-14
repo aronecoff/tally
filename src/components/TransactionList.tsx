@@ -25,7 +25,10 @@ export function TransactionList({ month, categories, onEdit }: Props) {
   }, [categories])
 
   const sorted = useMemo(
-    () => [...txns].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.id ?? 0) - (a.id ?? 0))),
+    () =>
+      txns
+        .filter((t) => !t.deleted)
+        .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.id ?? 0) - (a.id ?? 0))),
     [txns],
   )
 

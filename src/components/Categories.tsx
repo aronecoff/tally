@@ -77,7 +77,7 @@ function CategoryEditor({ category, showLimit }: { category: Category; showLimit
     if (category.id == null) return
     if (!window.confirm(`Delete "${category.name}"? Its transactions will become uncategorized.`)) return
     await db.transactions.where('categoryId').equals(category.id).modify({ categoryId: null, updatedAt: Date.now() })
-    await db.categories.delete(category.id)
+    await db.categories.update(category.id, { deleted: true, updatedAt: Date.now() })
   }
 
   return (
