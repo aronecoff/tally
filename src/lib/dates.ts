@@ -22,11 +22,6 @@ export function shiftMonth(month: string, delta: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`
 }
 
-/** True if a YYYY-MM-DD date falls within a YYYY-MM month. */
-export function inMonth(dateISO: string, month: string): boolean {
-  return dateISO.startsWith(month)
-}
-
 /** "Jun 3" — short label for a transaction row. */
 export function dayLabel(dateISO: string): string {
   const [y, m, d] = dateISO.split('-').map(Number)

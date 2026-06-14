@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
@@ -41,10 +41,15 @@ export function TransactionList({ month, categories, onEdit }: Props) {
         {count} transaction{count === 1 ? '' : 's'}
       </div>
       <ul className="txn-list">
-        {sorted.map((t) => {
+        {sorted.map((t, i) => {
           const cat = t.categoryId != null ? catById.get(t.categoryId) : undefined
           return (
-            <li key={t.id} className="txn-row" onClick={() => onEdit(t)}>
+            <li
+              key={t.id}
+              className="txn-row"
+              style={{ ['--i' as string]: Math.min(i, 14) } as CSSProperties}
+              onClick={() => onEdit(t)}
+            >
               <span className="cat-tile sm">
                 <Icon name={cat?.icon ?? 'tag'} size={18} />
               </span>
