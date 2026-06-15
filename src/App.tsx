@@ -4,6 +4,7 @@ import { db, type Transaction } from './db/db'
 import { seedIfEmpty } from './db/seed'
 import { currentMonth, monthLabel, shiftMonth } from './lib/dates'
 import { useTheme } from './lib/useTheme'
+import { Home } from './components/Home'
 import { Dashboard } from './components/Dashboard'
 import { TransactionList } from './components/TransactionList'
 import { Categories } from './components/Categories'
@@ -14,9 +15,10 @@ import { Account } from './components/Account'
 import { Icon } from './components/Icon'
 import { initSync } from './sync/sync'
 
-type Tab = 'dashboard' | 'transactions' | 'categories' | 'import'
+type Tab = 'home' | 'dashboard' | 'transactions' | 'categories' | 'import'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: 'home', label: 'Home', icon: 'home' },
   { id: 'dashboard', label: 'Budget', icon: 'pie' },
   { id: 'transactions', label: 'Activity', icon: 'list' },
   { id: 'categories', label: 'Categories', icon: 'tag' },
@@ -28,7 +30,7 @@ type SheetState = { mode: 'new' } | { mode: 'edit'; txn: Transaction } | null
 
 export default function App() {
   const [month, setMonth] = useState(currentMonth())
-  const [tab, setTab] = useState<Tab>('dashboard')
+  const [tab, setTab] = useState<Tab>('home')
   const [sheet, setSheet] = useState<SheetState>(null)
   const [ready, setReady] = useState(false)
   const { theme, toggle } = useTheme()
@@ -40,11 +42,15 @@ export default function App() {
     initSync()
   }, [])
 
+  const isHome = tab === 'home'
   const showMonthNav = tab === 'dashboard' || tab === 'transactions'
+  const showFab = tab === 'dashboard' || tab === 'transactions'
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? ''
 
-  const navButtons = (cls: 'tab' | 'side-tab') =>
-    TABS.map((t) => (
+  const navButtons = (cls: 'tab' | 'side-tab') => {
+    // The mobile tab bar fits 4 cleanly — Home is reached by tapping the wordmark.
+    const items = cls === 'tab' ? TABS.filter((t) => t.id !== 'home') : TABS
+    return items.map((t) => (
       <button
         key={t.id}
         className={`${cls} ${tab === t.id ? `${cls}-on` : ''}`}
@@ -54,6 +60,7 @@ export default function App() {
         <span className="tab-label">{t.label}</span>
       </button>
     ))
+  }
 
   return (
     <div className="app">
@@ -69,7 +76,9 @@ export default function App() {
 
       <div className="main">
         <header className="app-head">
-          <div className="brand"><span className="brand-mark" /> Tally</div>
+          <button className="brand" onClick={() => setTab('home')} aria-label="Home">
+            <span className="brand-mark" /> Tally
+          </button>
           <h1 className="page-title">{activeLabel}</h1>
           <div className="head-right">
             {showMonthNav && (
@@ -95,6 +104,12 @@ export default function App() {
             <div className="view" key={tab}>
               {!ready ? (
                 <p className="empty">Loading…</p>
+              ) : tab === 'home' ? (
+                <Home
+                  categories={categories}
+                  onEdit={(t) => setSheet({ mode: 'edit', txn: t })}
+                  onMore={() => setTab('dashboard')}
+                />
               ) : tab === 'dashboard' ? (
                 <Dashboard month={month} categories={categories} />
               ) : tab === 'transactions' ? (
@@ -112,11 +127,11 @@ export default function App() {
           </div>
         </main>
 
-        {showMonthNav && (
+        {showFab && (
           <button className="fab" onClick={() => setSheet({ mode: 'new' })} aria-label="Add transaction">＋</button>
         )}
 
-        <nav className="tabbar">{navButtons('tab')}</nav>
+        {!isHome && <nav className="tabbar">{navButtons('tab')}</nav>}
       </div>
 
       {sheet && (
