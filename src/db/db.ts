@@ -35,6 +35,28 @@ export interface Transaction {
   updatedAt: number
 }
 
+/** Net-worth tiers, top (most liquid) to bottom. `credit` is a liability. */
+export type AccountType = 'cash' | 'credit' | 'brokerage' | 'retirement' | 'benefit'
+
+export interface Account {
+  id?: number
+  uid?: string
+  name: string
+  institution: string
+  type: AccountType
+  /** Manual balance. Assets positive; for `credit`, the amount OWED (positive). */
+  balance: number
+  /** false = manual entry; true = fed by a live connector (later). */
+  liveSync: boolean
+  /** Provider account id when live-synced (dedup/re-sync key). */
+  sourceAccountId?: string
+  lastUpdated: number
+  sortOrder: number
+  archived?: boolean
+  deleted?: boolean
+  updatedAt: number
+}
+
 function newUid(): string {
   return crypto.randomUUID()
 }
@@ -48,6 +70,7 @@ function newUid(): string {
 export class TallyDB extends Dexie {
   categories!: Table<Category, number>
   transactions!: Table<Transaction, number>
+  accounts!: Table<Account, number>
 
   constructor() {
     super('tally')
@@ -71,6 +94,12 @@ export class TallyDB extends Dexie {
           if (t.deleted === undefined) t.deleted = false
         })
       })
+    // v3: accounts (net-worth / tiering). Manual now, connector-fed later.
+    this.version(3).stores({
+      categories: '++id, uid, name, kind, sortOrder',
+      transactions: '++id, uid, date, type, categoryId',
+      accounts: '++id, uid, type, sortOrder',
+    })
 
     // Auto-stamp uid + deleted on every new row so component creation sites
     // don't need to know about sync.
@@ -79,6 +108,10 @@ export class TallyDB extends Dexie {
       if (obj.deleted === undefined) obj.deleted = false
     })
     this.transactions.hook('creating', (_pk, obj: Transaction) => {
+      if (!obj.uid) obj.uid = newUid()
+      if (obj.deleted === undefined) obj.deleted = false
+    })
+    this.accounts.hook('creating', (_pk, obj: Account) => {
       if (!obj.uid) obj.uid = newUid()
       if (obj.deleted === undefined) obj.deleted = false
     })

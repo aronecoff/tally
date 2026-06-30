@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Transaction } from './db/db'
 import { seedIfEmpty } from './db/seed'
+import { seedAccountsIfEmpty } from './db/seedAccounts'
 import { currentMonth, monthLabel, shiftMonth } from './lib/dates'
 import { useTheme } from './lib/useTheme'
 import { Home } from './components/Home'
+import { Accounts } from './components/Accounts'
 import { Dashboard } from './components/Dashboard'
 import { TransactionList } from './components/TransactionList'
 import { Categories } from './components/Categories'
@@ -15,11 +17,12 @@ import { Account } from './components/Account'
 import { Icon } from './components/Icon'
 import { initSync } from './sync/sync'
 
-type Tab = 'home' | 'dashboard' | 'transactions' | 'categories' | 'import'
+type Tab = 'home' | 'dashboard' | 'accounts' | 'transactions' | 'categories' | 'import'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'dashboard', label: 'Budget', icon: 'pie' },
+  { id: 'accounts', label: 'Accounts', icon: 'wallet' },
   { id: 'transactions', label: 'Activity', icon: 'list' },
   { id: 'categories', label: 'Categories', icon: 'tag' },
   { id: 'import', label: 'Import', icon: 'download' },
@@ -38,7 +41,7 @@ export default function App() {
   const categories = useLiveQuery(() => db.categories.filter((c) => !c.deleted).toArray(), [], [])
 
   useEffect(() => {
-    seedIfEmpty().finally(() => setReady(true))
+    Promise.all([seedIfEmpty(), seedAccountsIfEmpty()]).finally(() => setReady(true))
     initSync()
   }, [])
 
@@ -112,6 +115,8 @@ export default function App() {
                 />
               ) : tab === 'dashboard' ? (
                 <Dashboard month={month} categories={categories} />
+              ) : tab === 'accounts' ? (
+                <Accounts />
               ) : tab === 'transactions' ? (
                 <TransactionList
                   month={month}
