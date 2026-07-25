@@ -86,6 +86,8 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
       categoryId,
       account: account.trim(),
       note: note.trim(),
+      // A hand-edit is authoritative: pin it so bank re-syncs never revert it.
+      manual: true,
       updatedAt: now,
     }
     if (editing && initial?.id != null) {
@@ -99,7 +101,8 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
   async function remove() {
     if (editing && initial?.id != null) {
       if (!window.confirm('Delete this transaction?')) return
-      await db.transactions.update(initial.id, { deleted: true, updatedAt: Date.now() })
+      // Pin the delete: without `manual`, a bank re-sync would resurrect the row.
+      await db.transactions.update(initial.id, { deleted: true, manual: true, updatedAt: Date.now() })
       onClose()
     }
   }
@@ -132,10 +135,12 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
             autoFocus
             onChange={(e) => {
               // Strip anything but digits and a single decimal point (handles
-              // pasted "1,234.56", currency symbols, etc.).
+              // pasted "1,234.56", currency symbols, etc.), clamped to cents —
+              // otherwise a paste like "100.50.25" silently became 100.5025.
               let v = e.target.value.replace(/[^\d.]/g, '')
               const dot = v.indexOf('.')
               if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '')
+              v = v.replace(/^(\d*\.\d{2}).*$/, '$1')
               setAmount(v)
             }}
             onKeyDown={(e) => e.key === 'Enter' && save()}

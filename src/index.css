@@ -85,7 +85,17 @@ body,
   margin: 0;
 }
 
+/* Lock the document like a native app: the page itself never scrolls or
+   rubber-bands — only .app-body scrolls, under a pinned header + tab bar. */
+html {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--mesh) fixed, var(--bg);
   color: var(--text);
   font-family: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -176,7 +186,9 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px;
+  /* Clear the iPhone notch / status bar in installed (standalone) mode; the inset
+     is 0 on desktop and in the Dock app, so nothing changes there. */
+  padding: calc(16px + env(safe-area-inset-top)) 18px 16px;
   border-radius: 0;
   border-left: none;
   border-right: none;
@@ -240,9 +252,13 @@ button {
   min-height: 0;
   padding: 18px 16px 124px;
   overflow-y: auto;
+  overflow-x: hidden;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+  /* The ONLY scroller: contain keeps its overscroll from bouncing the page or
+     triggering pull-to-refresh; pan-y keeps vertical scrolling smooth. */
   overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 /* ============ Buttons ============ */
@@ -665,6 +681,7 @@ button {
 }
 .field input,
 .field select,
+.field textarea,
 .csv-paste {
   background: var(--field);
   border: 1px solid var(--glass-border);
@@ -674,8 +691,15 @@ button {
   width: 100%;
   transition: border-color 0.12s;
 }
+.field textarea {
+  font-family: inherit;
+  resize: vertical;
+  min-height: 74px;
+  line-height: 1.4;
+}
 .field input:focus,
 .field select:focus,
+.field textarea:focus,
 .csv-paste:focus {
   outline: none;
   border-color: var(--accent);
@@ -1039,7 +1063,9 @@ button {
   width: 100%;
   max-width: 460px;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* One equal column per tab, however many there are — always symmetrical. */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   padding-bottom: env(safe-area-inset-bottom);
   border-left: none;
   border-right: none;
@@ -1077,10 +1103,15 @@ button {
 @media (min-width: 920px) {
   .app {
     display: grid;
-    grid-template-columns: 256px minmax(0, 1fr);
-    max-width: 1240px;
+    grid-template-columns: 232px minmax(0, 1fr);
+    max-width: 1180px;
     height: 100vh;
     gap: 0;
+    /* Sit the app in a soft glass frame so it reads as an intentional unit,
+       not stretched, when the Dock window is very wide. */
+    border-left: 1px solid var(--glass-border);
+    border-right: 1px solid var(--glass-border);
+    box-shadow: 0 0 0 1px var(--glass-border), 0 40px 120px rgba(0, 0, 0, 0.5);
   }
   .sidebar {
     display: flex;
@@ -1514,3 +1545,520 @@ body {
 .acct-add:hover {
   color: var(--text);
 }
+.acct-sync {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 2px;
+}
+.acct-sync-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.acct-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-2);
+}
+.acct-chip:hover:not(:disabled) {
+  color: var(--text);
+}
+.acct-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.acct-sync-msg {
+  font-size: 12px;
+}
+.acct-sync-msg.is-err {
+  color: var(--over);
+}
+
+/* ============ Analysis / Insights ============ */
+.analysis {
+  display: flex;
+  flex-direction: column;
+}
+.an-hero {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+  border-radius: var(--r-lg);
+  padding: 22px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.an-hero-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.an-hero-num {
+  font-size: 46px;
+  font-weight: 680;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+.an-trend {
+  align-self: flex-start;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--glass-2);
+  border: 1px solid var(--glass-border);
+}
+.an-trend.over { color: var(--over); }
+.an-trend.pos { color: var(--pos); }
+
+/* Tie-out: income − spending = net */
+.an-tie {
+  display: flex;
+  align-items: stretch;
+  margin-top: 14px;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+}
+.an-tie-cell {
+  flex: 1;
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: center;
+  text-align: center;
+}
+.an-tie-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.an-tie-val {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.an-tie-op {
+  align-self: center;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.an-section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 650;
+  margin: 26px 4px 12px;
+}
+
+.an-cats,
+.an-merchants {
+  list-style: none;
+  margin: 0;
+  padding: 4px 16px;
+  border-radius: var(--r);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+}
+.an-cat {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--glass-border);
+}
+.an-cat:last-child { border-bottom: none; }
+.an-cat .cat-tile.sm {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+.an-cat-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.an-cat-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+.an-cat-name {
+  font-weight: 550;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.an-cat-amt {
+  font-size: 13.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.an-cat-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--field);
+  overflow: hidden;
+}
+.an-cat-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #9b7cff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.an-cat-pct {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  min-width: 30px;
+  text-align: right;
+}
+
+.an-merchant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 14px;
+}
+.an-merchant:last-child { border-bottom: none; }
+.an-merchant-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.an-merchant-amt {
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.an-foot {
+  display: block;
+  margin: 16px 4px 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.an-foot svg { color: var(--pos); vertical-align: -2px; margin-right: 5px; }
+.an-foot strong { color: var(--text-2); font-weight: 650; }
+.an-foot-warn svg { color: var(--near); }
+
+/* ============ Home dashboard ============ */
+.dash-home { display: flex; flex-direction: column; gap: 14px; }
+
+/* Cash flow */
+.cf-card {
+  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border); box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+  border-radius: var(--r-lg); padding: 20px;
+}
+.cf-head { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 18px; gap: 4px; }
+.cf-title { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.cf-net { font-size: 40px; font-weight: 680; letter-spacing: -0.035em; line-height: 1.05; }
+.cf-flows { display: flex; flex-direction: column; gap: 14px; }
+.cf-flow { display: flex; flex-direction: column; gap: 7px; }
+.cf-flow-top { display: flex; justify-content: space-between; align-items: baseline; }
+.cf-flow-label { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); font-weight: 500; }
+.cf-flow-amt { font-size: 15px; font-weight: 650; }
+.cf-dot { width: 8px; height: 8px; border-radius: 50%; }
+.cf-dot.in { background: var(--pos); box-shadow: 0 0 8px var(--pos); }
+.cf-dot.out { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.cf-bar { height: 8px; border-radius: 999px; background: var(--field); overflow: hidden; }
+.cf-bar-fill { height: 100%; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); transition: width 0.6s cubic-bezier(0.22,1,0.36,1); }
+.cf-bar-fill.in { background: linear-gradient(90deg, var(--pos), #6fe0b8); }
+.cf-bar-fill.out { background: linear-gradient(90deg, var(--accent), #9b7cff); }
+
+/* Section cards */
+.card-sect {
+  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border); box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+  border-radius: var(--r); padding: 16px 16px 18px;
+}
+.sect-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; gap: 10px; }
+.sect-title { font-size: 13px; font-weight: 650; letter-spacing: -0.01em; }
+.sect-note { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.sect-note strong { color: var(--text-2); font-weight: 650; }
+
+/* Day by day */
+.daily { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
+.daily-bar { flex: 1 1 0; min-width: 0; border-radius: 3px 3px 2px 2px; background: linear-gradient(180deg, var(--accent), #7b6cff); opacity: 0.82; transition: height 0.4s cubic-bezier(0.22,1,0.36,1); min-height: 2px; }
+.daily-bar.zero { background: var(--field); opacity: 1; }
+.daily-bar.today { background: linear-gradient(180deg, var(--pos), #52d3a3); opacity: 1; box-shadow: 0 0 10px rgba(76,204,154,0.5); }
+.daily-axis { display: flex; justify-content: space-between; margin-top: 7px; font-size: 10.5px; color: var(--muted); }
+
+/* Trajectory / budgets */
+.traj { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 15px; }
+.traj-row { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
+.traj-row .cat-tile.sm { width: 30px; height: 30px; border-radius: 9px; margin-top: 1px; }
+.traj-main { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.traj-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.traj-name { font-weight: 550; font-size: 14px; }
+.traj-figs { font-size: 13px; white-space: nowrap; }
+.traj-figs strong { font-weight: 650; }
+.traj-figs .of { color: var(--muted); font-weight: 450; }
+.traj-bar { height: 6px; border-radius: 999px; background: var(--field); overflow: hidden; }
+.traj-fill { height: 100%; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.35); transition: width 0.55s cubic-bezier(0.22,1,0.36,1); background: var(--accent); }
+.traj-fill.ok { background: linear-gradient(90deg, var(--accent), #9b7cff); }
+.traj-fill.pace { background: linear-gradient(90deg, var(--near), #ffcf6b); }
+.traj-fill.over { background: linear-gradient(90deg, var(--over), #ff9aa1); width: 100% !important; }
+.traj-fill.nobudget { background: repeating-linear-gradient(90deg, var(--field) 0 5px, transparent 5px 10px); opacity: 0.6; width: 100%; }
+.traj-meta { font-size: 11.5px; }
+
+/* Bills */
+.bills { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.bill-row { display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: center; padding: 8px 0; }
+.bill-row .cat-tile.sm { width: 30px; height: 30px; border-radius: 9px; }
+.bill-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bill-name { font-weight: 550; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bill-sub { font-size: 11.5px; color: var(--muted); }
+.bill-amt { font-weight: 650; font-size: 14px; }
+
+/* Category tile status (icon color signals pace) */
+.cat-tile.sm.over { color: var(--over); border-color: var(--over); }
+.cat-tile.sm.pace { color: var(--near); border-color: var(--near); }
+.cat-tile.sm.ok { color: var(--pos); }
+
+/* ============ Budget drill-down ============ */
+.bud-cap { display: block; margin-top: 11px; font-size: 13px; color: var(--text-2); line-height: 1.4; }
+.bud-cap strong { color: var(--text); font-weight: 650; }
+.bud-mini { display: flex; gap: 26px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--glass-border); }
+.bud-mini > div { display: flex; flex-direction: column; gap: 3px; }
+.bud-mini-label { font-size: 11px; color: var(--muted); font-weight: 500; }
+.bud-mini .num { font-size: 15px; font-weight: 650; letter-spacing: -0.02em; }
+
+.bud-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.bud-cat { border-bottom: 1px solid var(--glass-border); }
+.bud-cat:last-child { border-bottom: none; }
+.bud-cat-head {
+  width: 100%; background: none; border: none; padding: 14px 0; text-align: left;
+  display: grid; grid-template-columns: 30px 1fr 16px; gap: 12px; align-items: center;
+}
+.bud-cat-head .cat-tile.sm { width: 30px; height: 30px; border-radius: 9px; }
+.bud-chev { color: var(--muted); transition: transform 0.22s cubic-bezier(0.22,1,0.36,1); justify-self: end; }
+.bud-chev.open { transform: rotate(90deg); color: var(--text-2); }
+
+.bud-txns { list-style: none; margin: 0 0 12px; padding: 6px 0 4px 42px; display: flex; flex-direction: column; gap: 1px; }
+.bud-txn { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: baseline; padding: 6px 0; font-size: 13px; }
+.bud-txn-date { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.bud-txn-note { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bud-txn-amt { font-weight: 600; white-space: nowrap; }
+
+/* ============ Wide-window layout — 2-column dashboard, no stretch ============ */
+.dash-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+@media (min-width: 920px) {
+  .app-body { padding: 24px 30px 64px; }
+  /* Single-column views stay a comfortable reading width, centered. */
+  .analysis, .accounts, .txn-list, .cats { max-width: 660px; margin-inline: auto; }
+}
+
+/* Two columns once there's room for them (sidebar + 2 card columns). */
+@media (min-width: 1040px) {
+  .dash-home,
+  .accounts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  /* Accounts fills the main column instead of the single-column 660px cap. */
+  .accounts { max-width: none; }
+}
+
+/* Left column stays put while the longer right column scrolls (desktop 2-col). */
+@media (min-width: 1040px) {
+  .dash-home > .dash-col:first-child,
+  .accounts > .dash-col:first-child { position: sticky; top: 4px; align-self: start; }
+}
+
+/* ============ Revamp polish ============ */
+/* Reconnect banner — impossible to miss, one tap to fix. */
+.reconnect-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 10px 16px 0;
+  padding: 11px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--near) 55%, transparent);
+  background: color-mix(in srgb, var(--near) 14%, transparent);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  color: var(--near);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Change-password block in the account sheet */
+.pw-change { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--glass-border); }
+.pw-change .sheet-actions { margin-top: 10px; }
+
+/* Desktop shows the page title next to the wordmark (mobile keeps it hidden). */
+@media (min-width: 920px) {
+  .page-title { display: block; color: var(--text-2); font-weight: 600; }
+}
+
+/* One section-title voice across every view. */
+.sect-title,
+.an-section-title,
+.section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 650;
+}
+.sect-title { text-transform: none; letter-spacing: -0.01em; font-size: 13px; color: var(--text); }
+
+/* Budget verdict — the "am I inside budget?" answer, top of Home. */
+.bud-verdict {
+  margin: 2px 0 18px;
+  padding: 13px 14px 12px;
+  border-radius: var(--r-sm);
+  background: var(--glass-2);
+  border: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bud-verdict.over { border-color: color-mix(in srgb, var(--over) 45%, transparent); }
+.bud-verdict.pace { border-color: color-mix(in srgb, var(--near) 45%, transparent); }
+.bud-verdict-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.bud-verdict-label { font-size: 13px; font-weight: 650; letter-spacing: -0.01em; }
+.bud-verdict.ok .bud-verdict-label { color: var(--pos); }
+.bud-verdict.pace .bud-verdict-label { color: var(--near); }
+.bud-verdict.over .bud-verdict-label { color: var(--over); }
+.bud-verdict-fig { font-size: 13px; font-weight: 650; }
+.bud-verdict-sub { font-size: 11.5px; color: var(--muted); }
+
+/* Savings row — income kept this month, with the rate. */
+.cf-save {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--glass-border);
+}
+.cf-save-label { font-size: 13px; color: var(--text-2); font-weight: 550; }
+.cf-save-figs { display: inline-flex; align-items: baseline; gap: 9px; }
+.cf-save-figs strong { font-size: 17px; font-weight: 680; letter-spacing: -0.02em; }
+.cf-save-rate {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--glass-2);
+  border: 1px solid var(--glass-border);
+}
+.an-tie-rate { font-size: 10.5px; font-weight: 600; margin-top: 2px; }
+
+/* ============ Insights v2 — movers, habits, control mix, savings trend ============ */
+.an-movers, .an-habits {
+  list-style: none; margin: 0; padding: 4px 16px;
+  border-radius: var(--r);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+}
+.an-mover {
+  display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: center;
+  padding: 12px 0; border-bottom: 1px solid var(--glass-border);
+}
+.an-mover:last-child { border-bottom: none; }
+.an-mover .cat-tile.sm { width: 30px; height: 30px; border-radius: 9px; }
+.an-mover-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.an-mover-name { font-weight: 550; font-size: 14px; }
+.an-mover-sub { font-size: 11.5px; color: var(--muted); }
+.an-mover-delta { font-weight: 680; font-size: 14.5px; white-space: nowrap; }
+
+.an-habit {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--glass-border);
+}
+.an-habit:last-child { border-bottom: none; }
+.an-habit-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.an-habit-name { font-weight: 550; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.an-habit-sub { font-size: 11.5px; color: var(--muted); }
+.an-habit-amt { font-weight: 650; white-space: nowrap; }
+
+.an-mix {
+  padding: 16px;
+  border-radius: var(--r);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+}
+.an-mix-bar { height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #9b7cff); overflow: hidden; }
+.an-mix-fixed { height: 100%; background: var(--field); border-right: 2px solid rgba(255,255,255,0.35); }
+.an-mix-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 11px; font-size: 12.5px; color: var(--text-2); flex-wrap: wrap; }
+.an-mix-row strong { color: var(--text); font-weight: 650; }
+.an-mix-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.an-mix-dot.fixed { background: var(--muted); }
+.an-mix-dot.flex { background: var(--accent); }
+.an-mix-note {
+  margin: 13px 0 0; padding-top: 12px; border-top: 1px solid var(--glass-border);
+  font-size: 12.5px; color: var(--text-2); line-height: 1.5;
+  display: block;
+}
+.an-mix-note svg { color: var(--near); vertical-align: -2px; margin-right: 5px; }
+.an-mix-note strong { color: var(--pos); font-weight: 680; }
+
+.an-savetrend {
+  list-style: none; margin: 0; padding: 10px 16px;
+  border-radius: var(--r);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
+}
+.an-savemonth { display: grid; grid-template-columns: 34px 1fr 92px; gap: 12px; align-items: center; padding: 8px 0; }
+.an-savemonth-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.an-savemonth-track { height: 8px; border-radius: 999px; background: var(--field); overflow: hidden; }
+.an-savemonth-bar { height: 100%; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); transition: width 0.55s cubic-bezier(0.22,1,0.36,1); }
+.an-savemonth-bar.pos-bg { background: linear-gradient(90deg, var(--pos), #6fe0b8); }
+.an-savemonth-bar.over-bg { background: linear-gradient(90deg, var(--over), #ff9aa1); }
+.an-savemonth-amt { font-size: 12.5px; font-weight: 650; text-align: right; white-space: nowrap; }
+
+/* Budget drill-down rows are editable — make them feel tappable. */
+.bud-txn-editable { cursor: pointer; border-radius: 8px; transition: background 0.12s; }
+.bud-txn-editable:hover, .bud-txn-editable:active { background: var(--glass-2); margin: 0 -8px; padding-left: 8px; padding-right: 8px; }

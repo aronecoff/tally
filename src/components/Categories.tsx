@@ -100,7 +100,16 @@ function CategoryEditor({ category, showLimit }: { category: Category; showLimit
           <div className="cat-edit-grid">
             <label className="field">
               <span>Name</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => patch({ name })} />
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => {
+                  // Never save a blank name — restore the current one instead.
+                  const trimmed = name.trim()
+                  if (trimmed) patch({ name: trimmed })
+                  else setName(category.name)
+                }}
+              />
             </label>
             {showLimit && (
               <label className="field">

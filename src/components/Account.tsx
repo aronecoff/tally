@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { subscribeSync, signIn, signOutSync, syncNow, type SyncSnapshot } from '../sync/sync'
+import { createPortal } from 'react-dom'
+import { subscribeSync, signIn, signOutSync, syncNow, changePassword, type SyncSnapshot } from '../sync/sync'
 import { supabase } from '../db/supabase'
 import { Icon } from './Icon'
 
@@ -17,6 +18,9 @@ export function Account() {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [pwOpen, setPwOpen] = useState(false)
+  const [newPw, setNewPw] = useState('')
+  const [pwMsg, setPwMsg] = useState<string | null>(null)
 
   useEffect(() => subscribeSync(setSnap), [])
 
@@ -48,8 +52,9 @@ export function Account() {
         <span className="account-dot" style={{ background: dotColor }} />
       </button>
 
-      {open && (
-        <div className="sheet-backdrop" onClick={() => setOpen(false)}>
+      {open &&
+        createPortal(
+          <div className="sheet-backdrop" onClick={() => setOpen(false)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-grab" />
             <div className="sheet-head">
@@ -83,6 +88,38 @@ export function Account() {
                     Sign out
                   </button>
                 </div>
+
+                {pwOpen ? (
+                  <div className="pw-change">
+                    <label className="field">
+                      <span>New password</span>
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        value={newPw}
+                        placeholder="At least 8 characters"
+                        onChange={(e) => setNewPw(e.target.value)}
+                      />
+                    </label>
+                    {pwMsg && <div className={`limit-warn ${/updated/i.test(pwMsg) ? '' : 'is-over'}`}>{pwMsg}</div>}
+                    <div className="sheet-actions">
+                      <button className="btn-ghost" onClick={() => { setPwOpen(false); setNewPw(''); setPwMsg(null) }}>Cancel</button>
+                      <button
+                        className="btn-primary"
+                        disabled={newPw.length < 8}
+                        onClick={async () => {
+                          const e = await changePassword(newPw)
+                          setPwMsg(e ?? 'Password updated ✓')
+                          if (!e) { setNewPw(''); setTimeout(() => setPwOpen(false), 1200) }
+                        }}
+                      >
+                        Save password
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="btn-danger-ghost" onClick={() => setPwOpen(true)}>Change password…</button>
+                )}
               </>
             ) : (
               <>
@@ -120,8 +157,9 @@ export function Account() {
               </>
             )}
           </div>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </>
   )
 }

@@ -17,10 +17,12 @@ export function InstallBanner() {
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
+    // Already a real app — installed PWA (standalone) or our native iOS/macOS
+    // WKWebView wrapper (which tags its user agent "TallyNative"). No install hint.
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as unknown as { standalone?: boolean }).standalone === true
-    if (standalone) return
+    if (standalone || / TallyNative\b/.test(navigator.userAgent)) return
 
     if (/iphone|ipad|ipod/i.test(navigator.userAgent)) setMode('ios')
 

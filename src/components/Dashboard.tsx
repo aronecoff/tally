@@ -1,194 +1,217 @@
-import { useMemo, type CSSProperties } from 'react'
+import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, type Category } from '../db/db'
+import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
-import { monthLabel } from '../lib/dates'
+import { monthLabel, currentMonth, dayLabel } from '../lib/dates'
 import { Icon } from './Icon'
 
 interface Props {
   month: string
   categories: Category[]
+  onManageCategories?: () => void
+  onEdit?: (t: Transaction) => void
 }
 
-type Status = 'ok' | 'near' | 'over'
+type State = 'ok' | 'near' | 'pace' | 'over' | 'none'
 
 interface Row {
-  category: Category | null
+  id: number | null
+  name: string
+  icon: string
   spent: number
   limit: number
-  status: Status
+  projected: number
+  state: State
+  txns: Transaction[]
 }
 
-const NEAR_THRESHOLD = 0.85
+/**
+ * Budget tab — the same liquid-glass dashboard language as Home, but focused:
+ * a spend summary, then every category with its pace/trajectory AND a tap-to-open
+ * breakdown of the exact transactions filed under it (so you can see how it's
+ * categorized). Budgets are the seeded monthly limits — never mutated here.
+ */
+export function Dashboard({ month, categories, onManageCategories, onEdit }: Props) {
+  const [open, setOpen] = useState<string | null>(null)
+  const txns = useLiveQuery(() => db.transactions.where('date').startsWith(month).toArray(), [month], [])
 
-function statusOf(spent: number, limit: number): Status {
-  if (limit <= 0) return 'ok'
-  if (spent > limit) return 'over'
-  if (spent >= limit * NEAR_THRESHOLD) return 'near'
-  return 'ok'
-}
+  const isCurrent = month === currentMonth()
+  const [y, m] = month.split('-').map(Number)
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const dayOfMonth = isCurrent ? new Date().getDate() : daysInMonth
 
-export function Dashboard({ month, categories }: Props) {
-  const txns = useLiveQuery(
-    () => db.transactions.where('date').startsWith(month).toArray(),
-    [month],
-    [],
-  )
-
-  const { income, expense, net, rows, totalLimit } = useMemo(() => {
+  const data = useMemo(() => {
     const byCat = new Map<number | null, number>()
+    const txByCat = new Map<number | null, Transaction[]>()
     let income = 0
     let expense = 0
     for (const t of txns) {
       if (t.deleted) continue
-      if (t.type === 'income') income += t.amount
-      else {
-        expense += t.amount
-        byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
+      if (t.type === 'income') {
+        income += t.amount
+        continue
       }
+      expense += t.amount
+      byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
+      const list = txByCat.get(t.categoryId)
+      if (list) list.push(t)
+      else txByCat.set(t.categoryId, [t])
+    }
+    for (const list of txByCat.values()) list.sort((a, b) => b.amount - a.amount)
+
+    // Only forecast once ~20% into the month — projecting from day 1 (rent on the
+    // 1st) would wildly over-forecast. Past months already have dayOfMonth = full.
+    const frac = daysInMonth > 0 ? dayOfMonth / daysInMonth : 1
+    const canProject = frac >= 0.2
+    const project = (s: number) => (canProject ? Math.round(s / frac) : s)
+    const stateOf = (spent: number, limit: number, projected: number): State => {
+      if (limit <= 0) return 'none'
+      if (spent > limit) return 'over'
+      if (isCurrent && projected > limit) return 'pace'
+      if (spent >= limit * 0.85) return 'near'
+      return 'ok'
     }
 
-    const expenseCats = categories
-      .filter((c) => c.kind === 'expense')
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-
+    const expenseCats = categories.filter((c) => c.kind === 'expense').sort((a, b) => a.sortOrder - b.sortOrder)
     const rows: Row[] = expenseCats
       .map((c) => {
-        const spent = byCat.get(c.id ?? -1) ?? 0
-        return { category: c, spent, limit: c.monthlyBudget, status: statusOf(spent, c.monthlyBudget) }
+        const spent = byCat.get(c.id!) ?? 0
+        const projected = project(spent)
+        return { id: c.id!, name: c.name, icon: c.icon, spent, limit: c.monthlyBudget || 0, projected, state: stateOf(spent, c.monthlyBudget || 0, projected), txns: txByCat.get(c.id!) ?? [] }
       })
       .filter((r) => r.limit > 0 || r.spent > 0)
 
-    const uncategorized = byCat.get(null) ?? 0
-    if (uncategorized > 0) rows.push({ category: null, spent: uncategorized, limit: 0, status: 'ok' })
+    const uncat = byCat.get(null) ?? 0
+    if (uncat > 0) {
+      rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, limit: 0, projected: project(uncat), state: 'none', txns: txByCat.get(null) ?? [] })
+    }
 
-    const rank = { over: 0, near: 1, ok: 2 }
-    rows.sort((a, b) => {
-      if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status]
-      const ap = a.limit > 0 ? a.spent / a.limit : -1
-      const bp = b.limit > 0 ? b.spent / b.limit : -1
-      return bp - ap
-    })
+    const rank: Record<State, number> = { over: 0, pace: 1, near: 2, none: 3, ok: 4 }
+    rows.sort((a, b) => (rank[a.state] - rank[b.state]) || b.spent - a.spent)
 
-    const totalLimit = expenseCats.reduce((s, c) => s + c.monthlyBudget, 0)
-    return { income, expense, net: income - expense, rows, totalLimit }
-  }, [txns, categories])
+    const totalLimit = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
+    return { income, expense, net: income - expense, rows, totalLimit, projectedTotal: project(expense), canProject: canProject && isCurrent }
+  }, [txns, categories, isCurrent, daysInMonth, dayOfMonth])
 
-  const alerts = rows.filter((r) => r.status !== 'ok' && r.category)
-  const hasLimit = totalLimit > 0
-  const totalPct = hasLimit ? Math.min(100, (expense / totalLimit) * 100) : 0
-  const totalOver = hasLimit && expense > totalLimit
-  const left = totalLimit - expense
-  const heroColor = totalOver ? 'var(--over)' : 'var(--accent)'
-
-  // "Spent in June" — but show the year too when viewing a different year.
-  const labelParts = monthLabel(month).split(' ')
-  const heroPeriod = labelParts[1] === String(new Date().getFullYear())
-    ? labelParts[0]
-    : `${labelParts[0]} ${labelParts[1]}`
+  const hasLimit = data.totalLimit > 0
+  const over = hasLimit && data.expense > data.totalLimit
+  const pct = hasLimit ? Math.min(100, (data.expense / data.totalLimit) * 100) : 0
+  const left = data.totalLimit - data.expense
+  const label = monthLabel(month).split(' ')
+  const period = label[1] === String(new Date().getFullYear()) ? label[0] : `${label[0]} ${label[1]}`
 
   return (
-    <div className="dash">
-      <div className="dash-left">
-      <div className="hero">
-        <span className="hero-label">Spent in {heroPeriod}</span>
-        <span className="hero-num num">{money(expense)}</span>
+    <div className="dash-home">
+      <div className="dash-col">
+      {/* Spend summary */}
+      <div className="cf-card">
+        <div className="cf-head">
+          <span className="cf-title">Spent in {period}</span>
+          <span className="cf-net num">{money(data.expense)}</span>
+        </div>
         {hasLimit && (
           <>
-            <div className="hero-bar">
-              <div className="hero-bar-fill" style={{ width: `${totalPct}%`, background: heroColor }} />
+            <div className="cf-bar">
+              <div className={`cf-bar-fill ${over ? 'over' : 'out'}`} style={{ width: `${pct}%` }} />
             </div>
-            <span className="hero-cap">
-              {totalOver ? (
-                <><strong className="over num">{money(-left)} over</strong> your {money(totalLimit)} limit</>
+            <span className="bud-cap">
+              {over ? (
+                <><strong className="over num">{money(-left)} over</strong> your {money(data.totalLimit)} limit</>
               ) : (
-                <><strong className="num">{money(left)} left</strong> of your {money(totalLimit)} limit</>
+                <><strong className="num">{money(left)} left</strong> of your {money(data.totalLimit)} limit
+                  {data.canProject && <> · proj. <strong className="num">{money(data.projectedTotal)}</strong></>}</>
               )}
             </span>
           </>
         )}
-      </div>
-
-      {alerts.length > 0 && (
-        <div className="alerts">
-          {alerts.map((a) => {
-            const over = a.status === 'over'
-            const fig = over ? a.spent - a.limit : a.limit - a.spent
-            return (
-              <div key={a.category!.id} className="alert">
-                <span className="alert-dot" style={{ background: over ? 'var(--over)' : 'var(--near)' }} />
-                <span className="alert-name">{a.category!.name}</span>
-                <span className={`alert-fig num ${over ? 'over' : 'near'}`}>
-                  {over ? `${money(fig)} over limit` : `${money(fig)} left`}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <div className="mini-stats">
-        <div className="mini-stat">
-          <span className="mini-label">Income</span>
-          <span className="mini-value num">{money(income)}</span>
-        </div>
-        <div className="mini-stat">
-          <span className="mini-label">Net</span>
-          <span className={`mini-value num ${net >= 0 ? 'pos' : 'over'}`}>{money(net, { sign: true })}</span>
+        <div className="bud-mini">
+          <div><span className="bud-mini-label">Income</span><span className="num">{money(data.income)}</span></div>
+          <div><span className="bud-mini-label">Net</span><span className={`num ${data.net >= 0 ? 'pos' : 'over'}`}>{money(data.net, { sign: true })}</span></div>
         </div>
       </div>
-
       </div>
 
-      <div className="dash-right">
-      <div className="section-title">
-        <span>Spending limits</span>
-      </div>
-
-      {rows.length === 0 ? (
-        <p className="empty">Nothing tracked yet this month.<br />Tap ＋ to add a transaction.</p>
-      ) : (
-        <ul className="limit-list">
-          {rows.map((r, i) => {
-            const name = r.category?.name ?? 'Uncategorized'
-            const icon = r.category?.icon ?? 'tag'
-            const has = r.limit > 0
-            const p = has ? Math.min(100, (r.spent / r.limit) * 100) : 0
-            const barColor =
-              r.status === 'over' ? 'var(--over)' : r.status === 'near' ? 'var(--near)' : 'var(--text-2)'
-            const remaining = r.limit - r.spent
-            return (
-              <li key={r.category?.id ?? 'uncat'} className="limit-row" style={{ ['--i' as string]: i } as CSSProperties}>
-                <span className="cat-tile">
-                  <Icon name={icon} size={18} />
-                </span>
-                <div className="limit-main">
-                  <div className="limit-top">
-                    <span className="limit-name">{name}</span>
-                    <span className="limit-figs num">
-                      <strong className={r.status === 'over' ? 'over' : ''}>{money(r.spent)}</strong>
-                      {has && <span className="of"> / {money(r.limit)}</span>}
-                    </span>
-                  </div>
-                  {has ? (
-                    <div className="bar">
-                      <div className="bar-fill" style={{ width: `${p}%`, background: barColor }} />
+      <div className="dash-col">
+      {/* Categories with drill-down */}
+      <div className="card-sect">
+        <div className="sect-row">
+          <span className="sect-title">Budgets</span>
+          <span className="sect-note">tap a category for its transactions</span>
+        </div>
+        {data.rows.length === 0 ? (
+          <p className="empty">Nothing tracked yet this month.</p>
+        ) : (
+          <ul className="bud-list">
+            {data.rows.map((r) => {
+              const key = r.id == null ? 'uncat' : String(r.id)
+              const expanded = open === key
+              const has = r.limit > 0
+              const barPct = has ? Math.min(100, (r.spent / r.limit) * 100) : 0
+              const fill = r.state === 'over' ? 'over' : r.state === 'pace' || r.state === 'near' ? 'pace' : r.state === 'none' ? 'nobudget' : 'ok'
+              const tile = r.state === 'over' ? 'over' : r.state === 'pace' || r.state === 'near' ? 'pace' : r.state === 'ok' ? 'ok' : ''
+              return (
+                <li key={key} className={`bud-cat ${expanded ? 'open' : ''}`}>
+                  <button className="bud-cat-head" onClick={() => setOpen(expanded ? null : key)}>
+                    <span className={`cat-tile sm ${tile}`}><Icon name={r.icon} size={16} /></span>
+                    <div className="traj-main">
+                      <div className="traj-top">
+                        <span className="traj-name">{r.name}</span>
+                        <span className="traj-figs num">
+                          <strong className={r.state === 'over' ? 'over' : ''}>{money(r.spent)}</strong>
+                          {has && <span className="of"> / {money(r.limit)}</span>}
+                        </span>
+                      </div>
+                      {has && (
+                        <div className="traj-bar">
+                          <div className={`traj-fill ${fill}`} style={{ width: `${barPct}%` }} />
+                        </div>
+                      )}
+                      <div className="traj-meta">
+                        {r.state === 'none' ? (
+                          <span className="muted">{r.txns.length} {r.txns.length === 1 ? 'transaction' : 'transactions'}</span>
+                        ) : r.state === 'over' ? (
+                          <span className="over">over by {money(r.spent - r.limit)}</span>
+                        ) : r.state === 'pace' ? (
+                          <span className="near">on pace for {money(r.projected)} — over</span>
+                        ) : r.state === 'near' ? (
+                          <span className="near">{money(r.limit - r.spent)} left · close</span>
+                        ) : (
+                          <span className="pos">{money(r.limit - r.spent)} left</span>
+                        )}
+                      </div>
                     </div>
-                  ) : (
-                    <div className="bar bar-nobudget" />
+                    <Icon name="chevron" size={16} className={`bud-chev ${expanded ? 'open' : ''}`} />
+                  </button>
+                  {expanded && (
+                    <ul className="bud-txns">
+                      {r.txns.length === 0 ? (
+                        <li className="bud-txn muted">No transactions this month.</li>
+                      ) : (
+                        r.txns.map((t) => (
+                          <li
+                            key={t.id}
+                            className={`bud-txn ${onEdit ? 'bud-txn-editable' : ''}`}
+                            onClick={() => onEdit?.(t)}
+                            title="Tap to edit or remove"
+                          >
+                            <span className="bud-txn-date">{dayLabel(t.date)}</span>
+                            <span className="bud-txn-note">{t.note || 'Transaction'}</span>
+                            <span className="bud-txn-amt num">{money(t.amount)}</span>
+                          </li>
+                        ))
+                      )}
+                    </ul>
                   )}
-                  {has && (
-                    <span className={`limit-meta num ${r.status === 'over' ? 'over' : r.status === 'near' ? 'near' : ''}`}>
-                      {r.status === 'over'
-                        ? `${money(-remaining)} over your limit`
-                        : `${money(remaining)} left`}
-                    </span>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+      {onManageCategories && (
+        <button className="home-more" onClick={onManageCategories}>
+          <Icon name="tag" size={15} /> Manage categories &amp; budgets
+        </button>
       )}
       </div>
     </div>

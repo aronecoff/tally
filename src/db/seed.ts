@@ -1,4 +1,5 @@
 import { db, type Category } from './db'
+import { supabase } from './supabase'
 
 type SeedCategory = Omit<Category, 'id' | 'updatedAt'>
 
@@ -27,6 +28,20 @@ const DEFAULTS: SeedCategory[] = [
  * concurrent callers) can both observe an empty table and seed twice.
  */
 export async function seedIfEmpty(): Promise<void> {
+  // When signed in, don't seed if the cloud already has categories — the pull
+  // will bring them. Seeding here would create a duplicate set that gets pushed
+  // alongside the cloud's. Only a genuinely new account (empty cloud) seeds.
+  if (supabase) {
+    try {
+      const { data } = await supabase.auth.getSession()
+      if (data.session) {
+        const { count } = await supabase.from('categories').select('id', { count: 'exact', head: true })
+        if ((count ?? 0) > 0) return
+      }
+    } catch {
+      /* offline or auth hiccup — fall through to the local count check */
+    }
+  }
   await db.transaction('rw', db.categories, async () => {
     const count = await db.categories.count()
     if (count > 0) return
