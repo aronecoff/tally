@@ -8,51 +8,83 @@ import { useTheme } from './lib/useTheme'
 import { Home } from './components/Home'
 import { Accounts } from './components/Accounts'
 import { Dashboard } from './components/Dashboard'
+import { Analysis } from './components/Analysis'
 import { TransactionList } from './components/TransactionList'
 import { Categories } from './components/Categories'
-import { ImportCsv } from './components/ImportCsv'
 import { TransactionSheet } from './components/TransactionSheet'
 import { InstallBanner } from './components/InstallBanner'
 import { Account } from './components/Account'
 import { Icon } from './components/Icon'
-import { initSync } from './sync/sync'
+import { initSync, subscribeSync } from './sync/sync'
+import { syncAllConnectors, subscribeBankHealth, type BankHealth } from './lib/banks'
 
-type Tab = 'home' | 'dashboard' | 'accounts' | 'transactions' | 'categories' | 'import'
+type Tab = 'home' | 'dashboard' | 'insights' | 'accounts' | 'transactions' | 'categories'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'dashboard', label: 'Budget', icon: 'pie' },
+  { id: 'insights', label: 'Insights', icon: 'chart' },
   { id: 'accounts', label: 'Accounts', icon: 'wallet' },
   { id: 'transactions', label: 'Activity', icon: 'list' },
   { id: 'categories', label: 'Categories', icon: 'tag' },
-  { id: 'import', label: 'Import', icon: 'download' },
 ]
-
-// Sentinel for "add new" vs editing an existing transaction.
-type SheetState = { mode: 'new' } | { mode: 'edit'; txn: Transaction } | null
 
 export default function App() {
   const [month, setMonth] = useState(currentMonth())
   const [tab, setTab] = useState<Tab>('home')
-  const [sheet, setSheet] = useState<SheetState>(null)
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null)
   const [ready, setReady] = useState(false)
+  const [bankHealth, setBankHealth] = useState<BankHealth>('unknown')
   const { theme, toggle } = useTheme()
+
+  useEffect(() => subscribeBankHealth(setBankHealth), [])
 
   const categories = useLiveQuery(() => db.categories.filter((c) => !c.deleted).toArray(), [], [])
 
   useEffect(() => {
     Promise.all([seedIfEmpty(), seedAccountsIfEmpty()]).finally(() => setReady(true))
     initSync()
+    // Real-time connector sync: pull balances + transactions on boot, whenever the
+    // window regains focus, and every few minutes while open. Device sync (Supabase
+    // ↔ Dexie) runs its own 45s/focus/online loop inside initSync().
+    const pull = () => void syncAllConnectors().catch(() => {})
+    const boot = setTimeout(pull, 1800)
+    const iv = setInterval(pull, 4 * 60 * 1000)
+    window.addEventListener('focus', pull)
+
+    // Kill stale builds: poke the service worker to check for a new deploy on a
+    // short interval + on focus. registerType 'autoUpdate' then activates the new
+    // build and reloads on its own — no more manual ⇧⌘R / force-refresh.
+    const swUpdate = () =>
+      void navigator.serviceWorker?.getRegistration?.().then((r) => r?.update()).catch(() => {})
+    const swIv = setInterval(swUpdate, 60 * 1000)
+    window.addEventListener('focus', swUpdate)
+    // The moment a session signs in (fresh device / after reconnect), pull live
+    // balances immediately — no manual "Sync now", net worth is never $0.
+    let signedIn = false
+    const unsub = subscribeSync((s) => {
+      const now = !!s.email
+      if (now && !signedIn) pull()
+      signedIn = now
+    })
+    return () => {
+      clearTimeout(boot)
+      clearInterval(iv)
+      clearInterval(swIv)
+      window.removeEventListener('focus', pull)
+      window.removeEventListener('focus', swUpdate)
+      unsub()
+    }
   }, [])
 
   const isHome = tab === 'home'
-  const showMonthNav = tab === 'dashboard' || tab === 'transactions'
-  const showFab = tab === 'dashboard' || tab === 'transactions'
+  const showMonthNav = tab === 'dashboard' || tab === 'insights' || tab === 'transactions'
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? ''
 
   const navButtons = (cls: 'tab' | 'side-tab') => {
-    // The mobile tab bar fits 4 cleanly — Home is reached by tapping the wordmark.
-    const items = cls === 'tab' ? TABS.filter((t) => t.id !== 'home') : TABS
+    // Mobile bar = the 4 daily destinations (Home via the wordmark; Categories is
+    // a settings screen, reached from Budget → "Manage categories & budgets").
+    const items = cls === 'tab' ? TABS.filter((t) => t.id !== 'home' && t.id !== 'categories') : TABS
     return items.map((t) => (
       <button
         key={t.id}
@@ -70,11 +102,6 @@ export default function App() {
       <aside className="sidebar">
         <div className="side-brand"><span className="brand-mark" /> Tally</div>
         <nav className="side-nav">{navButtons('side-tab')}</nav>
-        <div className="side-foot">
-          <button className="side-add" onClick={() => setSheet({ mode: 'new' })}>
-            <Icon name="plus" size={18} /> New transaction
-          </button>
-        </div>
       </aside>
 
       <div className="main">
@@ -102,49 +129,46 @@ export default function App() {
 
         <InstallBanner />
 
+        {bankHealth === 'expired' && (
+          <button
+            className="reconnect-banner"
+            onClick={() => {
+              setTab('accounts')
+              window.dispatchEvent(new Event('tally:open-bank-connect'))
+            }}
+          >
+            <Icon name="alert" size={15} />
+            Bank connection expired — tap to reconnect
+          </button>
+        )}
+
         <main className="app-body">
           <div className="app-scroll">
             <div className="view" key={tab}>
               {!ready ? (
                 <p className="empty">Loading…</p>
               ) : tab === 'home' ? (
-                <Home
-                  categories={categories}
-                  onEdit={(t) => setSheet({ mode: 'edit', txn: t })}
-                  onMore={() => setTab('dashboard')}
-                />
+                <Home categories={categories} onEdit={setEditTxn} onMore={() => setTab('dashboard')} />
               ) : tab === 'dashboard' ? (
-                <Dashboard month={month} categories={categories} />
+                <Dashboard month={month} categories={categories} onManageCategories={() => setTab('categories')} onEdit={setEditTxn} />
+              ) : tab === 'insights' ? (
+                <Analysis month={month} categories={categories} />
               ) : tab === 'accounts' ? (
-                <Accounts />
+                <Accounts onSynced={() => setTab('insights')} />
               ) : tab === 'transactions' ? (
-                <TransactionList
-                  month={month}
-                  categories={categories}
-                  onEdit={(t) => setSheet({ mode: 'edit', txn: t })}
-                />
-              ) : tab === 'categories' ? (
-                <Categories categories={categories} />
+                <TransactionList month={month} categories={categories} onEdit={setEditTxn} />
               ) : (
-                <ImportCsv categories={categories} onDone={() => setTab('transactions')} />
+                <Categories categories={categories} />
               )}
             </div>
           </div>
         </main>
 
-        {showFab && (
-          <button className="fab" onClick={() => setSheet({ mode: 'new' })} aria-label="Add transaction">＋</button>
-        )}
-
         {!isHome && <nav className="tabbar">{navButtons('tab')}</nav>}
       </div>
 
-      {sheet && (
-        <TransactionSheet
-          categories={categories}
-          initial={sheet.mode === 'edit' ? sheet.txn : null}
-          onClose={() => setSheet(null)}
-        />
+      {editTxn && (
+        <TransactionSheet categories={categories} initial={editTxn} onClose={() => setEditTxn(null)} />
       )}
     </div>
   )

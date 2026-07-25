@@ -31,6 +31,7 @@ const PATHS: Record<string, string> = {
   card: 'M3.5 6.5h17a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z M2.5 10.5h19 M6 14.5h4',
   chart: 'M3.5 21h17 M6.5 21V11 M11.5 21V5 M16.5 21v-8',
   bank: 'M3.5 10 12 4.5 20.5 10 M4.5 10v8 M9.5 10v8 M14.5 10v8 M19.5 10v8 M3 21h18',
+  chevron: 'M9 5.5 15.5 12 9 18.5',
 }
 
 interface Props {
