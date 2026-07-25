@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Xcode user state / build output
+xcuserdata/
+DerivedData/
+ios/build/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
