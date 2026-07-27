@@ -136,14 +136,14 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
                 <><strong className="over num">{money(-left)} over</strong> your {money(data.totalLimit)} limit</>
               ) : (
                 <><strong className="num">{money(left)} left</strong> of your {money(data.totalLimit)} limit
-                  {data.canProject && <> · proj. <strong className="num">{money(data.projectedTotal)}</strong></>}</>
+                  {data.canProject && <> · expecting ~<strong className="num">{money(data.projectedTotal)}</strong> by month-end</>}</>
               )}
             </span>
           </>
         )}
         <div className="bud-mini">
-          <div><span className="bud-mini-label">Income</span><span className="num">{money(data.income)}</span></div>
-          <div><span className="bud-mini-label">Net</span><span className={`num ${data.net >= 0 ? 'pos' : 'over'}`}>{money(data.net, { sign: true })}</span></div>
+          <div><span className="bud-mini-label">Money in</span><span className="num">{money(data.income)}</span></div>
+          <div><span className="bud-mini-label">Kept</span><span className={`num ${data.net >= 0 ? 'pos' : 'over'}`}>{money(data.net, { sign: true })}</span></div>
         </div>
       </div>
       </div>
