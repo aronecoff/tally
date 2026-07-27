@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { currentMonth, todayISO, monthLabel } from '../lib/dates'
 import { isFixedCategory } from '../lib/categorize'
+import { cleanMerchant } from '../lib/merchants'
 import { money } from '../lib/format'
 import { Icon } from './Icon'
 
@@ -118,11 +119,13 @@ export function Home({ categories, onEdit, onMore }: Props) {
     const groups = new Map<string, { name: string; months: Set<string>; last: number; lastDate: string; catId: number | null }>()
     for (const t of recentTxns) {
       if (t.deleted || t.type !== 'expense') continue
-      const key = (t.note || '').trim().toLowerCase()
+      // Group by the CLEANED merchant, or "SAFEWAY #1471" and "SAFEWAY #2210"
+      // read as two different bills and recurring detection undercounts.
+      const key = cleanMerchant(t.note || '').toLowerCase()
       if (!key) continue
       const g = groups.get(key)
       const m = t.date.slice(0, 7)
-      if (!g) groups.set(key, { name: t.note, months: new Set([m]), last: t.amount, lastDate: t.date, catId: t.categoryId })
+      if (!g) groups.set(key, { name: cleanMerchant(t.note), months: new Set([m]), last: t.amount, lastDate: t.date, catId: t.categoryId })
       else {
         g.months.add(m)
         if (t.date > g.lastDate) {
@@ -196,7 +199,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
             ) : over ? (
               <span className="over">over by {money(r.spent - r.budget)}</span>
             ) : overPace ? (
-              <span className="near">expecting ~{money(r.projected)} — over its {money(r.budget)}</span>
+              <span className="near">expecting ~{money(r.projected, { approx: true })} — over its {money(r.budget)}</span>
             ) : (
               <span className="pos">on track · {money(r.budget - r.spent)} left</span>
             )}
@@ -232,7 +235,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
             </div>
             <span className="bud-verdict-sub num">
               {money(d.spend)} spent of {money(d.totalBudget)}
-              {d.canProject && !overBudget && <> · expecting ~{money(d.projectedTotal)} by month-end</>}
+              {d.canProject && !overBudget && <> · expecting ~{money(d.projectedTotal, { approx: true })} by month-end</>}
             </span>
           </div>
         )}
@@ -288,7 +291,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
       <div className="card-sect">
         <div className="sect-row">
           <span className="sect-title">Day by day</span>
-          <span className="sect-note num">{money(d.avgPerDay)}/day avg</span>
+          <span className="sect-note num">~{money(d.avgPerDay, { approx: true })}/day</span>
         </div>
         <div className="daily">
           {d.daily.map((amt, i) => {
@@ -323,7 +326,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
           <span className="sect-note">
             {d.totalBudget > 0 ? (
               d.canProject ? (
-                <>expecting ~<strong className="num">{money(d.projectedTotal)}</strong> of {money(d.totalBudget)}</>
+                <>expecting ~<strong className="num">{money(d.projectedTotal, { approx: true })}</strong> of {money(d.totalBudget)}</>
               ) : (
                 <><strong className="num">{money(d.spend)}</strong> of {money(d.totalBudget)}</>
               )
@@ -367,7 +370,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
                   <span className="cat-tile sm"><Icon name={cat?.icon ?? 'repeat'} size={16} /></span>
                   <div className="bill-main">
                     <span className="bill-name">{b.name}</span>
-                    <span className="bill-sub">{cat?.name ?? 'Bill'} · monthly</span>
+                    <span className="bill-sub">{cat?.name ?? 'Bill'} · recurring</span>
                   </div>
                   <span className="bill-amt num">{money(b.last)}</span>
                 </li>

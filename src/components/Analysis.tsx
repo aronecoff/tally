@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category } from '../db/db'
 import { money } from '../lib/format'
 import { isFixedCategory } from '../lib/categorize'
+import { cleanMerchant } from '../lib/merchants'
 import { shiftMonth, monthLabel, currentMonth } from '../lib/dates'
 import { Icon } from './Icon'
 
@@ -55,7 +56,8 @@ export function Analysis({ month, categories }: Props) {
       spend += t.amount
       spendCount++
       byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
-      const name = (t.note || 'Other').trim() || 'Other'
+      // Group by cleaned merchant, or store numbers split one habit into many.
+      const name = cleanMerchant(t.note || '') || 'Other'
       const m = merch.get(name) ?? { n: 0, amt: 0 }
       m.n++
       m.amt += t.amount
