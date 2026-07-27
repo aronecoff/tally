@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { currentMonth, todayISO, monthLabel } from '../lib/dates'
@@ -153,6 +153,59 @@ export function Home({ categories, onEdit, onMore }: Props) {
   const budgetPct = d.totalBudget > 0 ? Math.min(100, (d.spend / d.totalBudget) * 100) : 0
   const budgetState = overBudget ? 'over' : overPaceBudget ? 'pace' : 'ok'
 
+  // Calm by default, detail on demand: only the verdict and anything that needs
+  // action are always visible. The charts and full lists sit behind one toggle
+  // (remembered across visits). Everything is still tracked either way.
+  const [showDetail, setShowDetail] = useState(() => localStorage.getItem('tally-home-detail') === '1')
+  const toggleDetail = () =>
+    setShowDetail((v) => {
+      localStorage.setItem('tally-home-detail', v ? '0' : '1')
+      return !v
+    })
+
+  // What actually needs the user: over budget, likely to go over, or unfiled.
+  const attention = d.rows.filter(
+    (r) => r.id === null || (r.budget > 0 && (r.spent > r.budget || (d.canProject && r.projected > r.budget))),
+  )
+
+  const renderRow = (r: Row) => {
+    const hasBudget = r.budget > 0
+    const pct = hasBudget ? Math.min((r.spent / r.budget) * 100, 100) : 0
+    const over = hasBudget && r.spent > r.budget
+    const overPace = hasBudget && !over && r.projected > r.budget
+    const state = !hasBudget ? 'none' : over ? 'over' : overPace ? 'pace' : 'ok'
+    return (
+      <li key={r.id ?? 'uncat'} className="traj-row">
+        <span className={`cat-tile sm ${state}`}><Icon name={r.icon} size={16} /></span>
+        <div className="traj-main">
+          <div className="traj-top">
+            <span className="traj-name">{r.name}</span>
+            <span className="traj-figs num">
+              <strong>{money(r.spent)}</strong>
+              {hasBudget && <span className="of"> / {money(r.budget)}</span>}
+            </span>
+          </div>
+          {hasBudget && (
+            <div className="traj-bar">
+              <div className={`traj-fill ${state}`} style={{ width: `${pct}%` }} />
+            </div>
+          )}
+          <div className="traj-meta">
+            {!hasBudget ? (
+              <span className="muted">{r.id === null ? 'needs a category — sort it in Budget' : 'not budgeted'}</span>
+            ) : over ? (
+              <span className="over">over by {money(r.spent - r.budget)}</span>
+            ) : overPace ? (
+              <span className="near">expecting ~{money(r.projected)} — over its {money(r.budget)}</span>
+            ) : (
+              <span className="pos">on track · {money(r.budget - r.spent)} left</span>
+            )}
+          </div>
+        </div>
+      </li>
+    )
+  }
+
   return (
     <div className="dash-home">
       <div className="dash-col">
@@ -216,7 +269,22 @@ export function Home({ categories, onEdit, onMore }: Props) {
         )}
       </div>
 
+      {/* Needs attention — the only list that's always visible. */}
+      <div className="card-sect">
+        <div className="sect-row"><span className="sect-title">Needs your eye</span></div>
+        {attention.length > 0 ? (
+          <ul className="traj">{attention.map(renderRow)}</ul>
+        ) : (
+          <div className="allgood"><Icon name="sparkles" size={15} /> All budgets on track — nothing needs you.</div>
+        )}
+      </div>
+
+      <button className="detail-toggle" onClick={toggleDetail}>
+        <Icon name="chart" size={15} /> {showDetail ? 'Less detail' : 'More detail'}
+      </button>
+
       {/* Day by day */}
+      {showDetail && (
       <div className="card-sect">
         <div className="sect-row">
           <span className="sect-title">Day by day</span>
@@ -243,10 +311,12 @@ export function Home({ categories, onEdit, onMore }: Props) {
         </div>
         <div className="daily-axis"><span>1</span><span>{Math.ceil(daysInMonth / 2)}</span><span>{daysInMonth}</span></div>
       </div>
+      )}
       </div>
 
       <div className="dash-col">
       {/* Budgets + trajectory */}
+      {showDetail && (
       <div className="card-sect">
         <div className="sect-row">
           <span className="sect-title">Budgets</span>
@@ -263,43 +333,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
           </span>
         </div>
         <ul className="traj">
-          {d.rows.filter((r) => r.spent > 0).map((r) => {
-            const hasBudget = r.budget > 0
-            const pct = hasBudget ? Math.min((r.spent / r.budget) * 100, 100) : 0
-            const over = hasBudget && r.spent > r.budget
-            const overPace = hasBudget && !over && r.projected > r.budget
-            const state = !hasBudget ? 'none' : over ? 'over' : overPace ? 'pace' : 'ok'
-            return (
-              <li key={r.id ?? 'uncat'} className="traj-row">
-                <span className={`cat-tile sm ${state}`}><Icon name={r.icon} size={16} /></span>
-                <div className="traj-main">
-                  <div className="traj-top">
-                    <span className="traj-name">{r.name}</span>
-                    <span className="traj-figs num">
-                      <strong>{money(r.spent)}</strong>
-                      {hasBudget && <span className="of"> / {money(r.budget)}</span>}
-                    </span>
-                  </div>
-                  {hasBudget && (
-                    <div className="traj-bar">
-                      <div className={`traj-fill ${state}`} style={{ width: `${pct}%` }} />
-                    </div>
-                  )}
-                  <div className="traj-meta">
-                    {!hasBudget ? (
-                      <span className="muted">{r.id === null ? 'needs a category — sort it in Budget' : 'not budgeted'}</span>
-                    ) : over ? (
-                      <span className="over">over by {money(r.spent - r.budget)}</span>
-                    ) : overPace ? (
-                      <span className="near">on pace for {money(r.projected)} — over</span>
-                    ) : (
-                      <span className="pos">on track · {money(r.budget - r.spent)} left</span>
-                    )}
-                  </div>
-                </div>
-              </li>
-            )
-          })}
+          {d.rows.filter((r) => r.spent > 0).map(renderRow)}
           {d.rows.filter((r) => r.spent > 0).length === 0 && (
             <li className="traj-empty">Nothing spent yet this month.</li>
           )}
@@ -319,9 +353,10 @@ export function Home({ categories, onEdit, onMore }: Props) {
           )
         })()}
       </div>
+      )}
 
       {/* Recurring bills */}
-      {bills.length > 0 && (
+      {showDetail && bills.length > 0 && (
         <div className="card-sect">
           <div className="sect-row"><span className="sect-title">Recurring bills</span></div>
           <ul className="bills">
