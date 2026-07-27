@@ -1,12 +1,15 @@
 #!/bin/bash
-# Rebuild the native macOS Tally.app (WKWebView wrapper, no Chrome) into
+# Build/refresh the native macOS Tally.app (WKWebView wrapper, no Chrome) into
 # ~/Applications and refresh the Dock. Re-run after editing desktop/Tally.swift.
-# The bundle's Info.plist and Tally.icns are created once during initial setup;
-# this just recompiles the binary in place.
+# Fully reproducible from a fresh clone: the bundle's Info.plist and Tally.icns
+# are versioned here in desktop/ and installed on every build. Regenerate the
+# icns after a logo change with scripts/icons.mjs + sips/iconutil.
 set -e
 APP="$HOME/Applications/Tally.app"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$DIR/desktop/Info.plist" "$APP/Contents/Info.plist"
+cp "$DIR/desktop/Tally.icns" "$APP/Contents/Resources/Tally.icns"
 swiftc -O -o "$APP/Contents/MacOS/Tally" "$DIR/desktop/Tally.swift" \
   -framework Cocoa -framework WebKit
 touch "$APP"
