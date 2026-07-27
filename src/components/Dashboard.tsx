@@ -136,7 +136,7 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
                 <><strong className="over num">{money(-left)} over</strong> your {money(data.totalLimit)} limit</>
               ) : (
                 <><strong className="num">{money(left)} left</strong> of your {money(data.totalLimit)} limit
-                  {data.canProject && <> · expecting ~<strong className="num">{money(data.projectedTotal)}</strong> by month-end</>}</>
+                  {data.canProject && <> · expecting ~<strong className="num">{money(data.projectedTotal, { approx: true })}</strong> by month-end</>}</>
               )}
             </span>
           </>
@@ -195,7 +195,7 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
                         ) : r.state === 'over' ? (
                           <span className="over">over by {money(r.spent - r.limit)}</span>
                         ) : r.state === 'pace' ? (
-                          <span className="near">on pace for {money(r.projected)} — over</span>
+                          <span className="near">expecting ~{money(r.projected, { approx: true })} — over its {money(r.limit)}</span>
                         ) : r.state === 'near' ? (
                           <span className="near">{money(r.limit - r.spent)} left · close</span>
                         ) : (
