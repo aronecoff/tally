@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction, type TxType } from '../db/db'
-import { todayISO } from '../lib/dates'
+import { todayISO, dayLabel } from '../lib/dates'
 import { guessCategoryName } from '../lib/categorize'
+import { cleanMerchant, merchantInfo } from '../lib/merchants'
 import { money } from '../lib/format'
 import { Icon } from './Icon'
 
@@ -22,7 +23,25 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
   const [note, setNote] = useState(initial?.note ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
   const [touchedCategory, setTouchedCategory] = useState(editing)
+  const [logoFailed, setLogoFailed] = useState(false)
   const guessedOnce = useRef(editing)
+
+  // Purchase detail (edit mode): who the merchant is + your history with them.
+  // Banks never transmit the purchased items, so the "what did I buy?" answer
+  // is a deep link into the merchant's own order page.
+  const merchant = useMemo(() => (editing ? merchantInfo(initial?.note ?? '') : null), [editing, initial?.note])
+  const history = useLiveQuery(async () => {
+    if (!editing || !initial?.note?.trim()) return null
+    const key = cleanMerchant(initial.note).toLowerCase()
+    if (!key) return null
+    const all = await db.transactions.toArray()
+    const same = all
+      .filter((t) => !t.deleted && t.id !== initial.id && t.type === initial.type && cleanMerchant(t.note).toLowerCase() === key)
+      .sort((a, b) => b.date.localeCompare(a.date))
+    if (same.length === 0) return null
+    const total = same.reduce((s, t) => s + t.amount, 0) + initial.amount
+    return { count: same.length + 1, total, avg: total / (same.length + 1), last: same[0] }
+  }, [editing, initial?.id, initial?.note, initial?.type, initial?.amount], null)
 
   const visibleCategories = useMemo(
     () => categories.filter((c) => c.kind === type).sort((a, b) => a.sortOrder - b.sortOrder),
@@ -112,9 +131,42 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-grab" />
         <div className="sheet-head">
-          <h2>{editing ? 'Edit transaction' : 'New transaction'}</h2>
+          <h2>{editing ? 'Transaction' : 'New transaction'}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
+
+        {editing && merchant && (merchant.name || selectedCat) && (
+          <div className="txn-hero">
+            <span className="txn-logo">
+              {merchant.logoUrl && !logoFailed ? (
+                <img src={merchant.logoUrl} alt="" onError={() => setLogoFailed(true)} />
+              ) : (
+                <Icon name={selectedCat?.icon ?? 'tag'} size={20} />
+              )}
+            </span>
+            <div className="txn-hero-main">
+              <span className="txn-hero-name">{merchant.name || selectedCat?.name || 'No description'}</span>
+              <span className="txn-hero-sub">
+                {history
+                  ? <>{history.count} visits · avg {money(history.avg)} · last {dayLabel(history.last.date)}</>
+                  : <>first transaction with this merchant</>}
+              </span>
+            </div>
+          </div>
+        )}
+        {editing && merchant && (merchant.orderUrl || merchant.searchUrl) && (
+          <div className="txn-links">
+            {merchant.orderUrl ? (
+              <a className="txn-link" href={merchant.orderUrl} target="_blank" rel="noopener noreferrer">
+                {merchant.orderLabel} <Icon name="chevron" size={13} />
+              </a>
+            ) : (
+              <a className="txn-link" href={merchant.searchUrl!} target="_blank" rel="noopener noreferrer">
+                Look up this charge <Icon name="chevron" size={13} />
+              </a>
+            )}
+          </div>
+        )}
 
         <div className="seg">
           <button className={type === 'expense' ? 'seg-on' : ''} onClick={() => setType('expense')}>
