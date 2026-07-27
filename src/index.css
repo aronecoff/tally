@@ -2078,3 +2078,9 @@ body {
 /* Home budget list: untouched categories collapse into one quiet line. */
 .traj-quiet { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--glass-border); font-size: 12.5px; color: var(--muted); }
 .traj-empty { font-size: 13px; color: var(--muted); padding: 6px 0; list-style: none; }
+
+/* "All budgets on track" calm state + Home detail toggle. */
+.allgood { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-2); padding: 8px 0; }
+.allgood svg { color: #34d399; flex: 0 0 auto; }
+.detail-toggle { margin: 4px auto 0; display: flex; align-items: center; gap: 8px; background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--glass-border); border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 550; color: var(--text-2); cursor: pointer; }
+.detail-toggle:hover { color: var(--text); background: var(--glass-2); }
