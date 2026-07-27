@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
+import { isFixedCategory } from '../lib/categorize'
 import { monthLabel, currentMonth, dayLabel } from '../lib/dates'
 import { Icon } from './Icon'
 
@@ -64,11 +65,13 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
     const frac = daysInMonth > 0 ? dayOfMonth / daysInMonth : 1
     const canProject = frac >= 0.2
     const project = (s: number) => (canProject ? Math.round(s / frac) : s)
-    const stateOf = (spent: number, limit: number, projected: number): State => {
+    const stateOf = (spent: number, limit: number, projected: number, fixed = false): State => {
       if (limit <= 0) return 'none'
       if (spent > limit) return 'over'
       if (isCurrent && projected > limit) return 'pace'
-      if (spent >= limit * 0.85) return 'near'
+      // "close" warns you're approaching a cap mid-month; a fixed bill landing
+      // at its budgeted amount is the expected outcome, not a warning.
+      if (!fixed && spent >= limit * 0.85) return 'near'
       return 'ok'
     }
 
@@ -76,8 +79,12 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
     const rows: Row[] = expenseCats
       .map((c) => {
         const spent = byCat.get(c.id!) ?? 0
-        const projected = project(spent)
-        return { id: c.id!, name: c.name, icon: c.icon, spent, limit: c.monthlyBudget || 0, projected, state: stateOf(spent, c.monthlyBudget || 0, projected), txns: txByCat.get(c.id!) ?? [] }
+        const limit = c.monthlyBudget || 0
+        // Fixed bills (rent, subs) never extrapolate: the month-end truth is the
+        // bill itself — what's paid, or the budgeted amount if it hasn't hit yet.
+        const fixed = isFixedCategory(c.name)
+        const projected = fixed ? Math.max(spent, limit) : project(spent)
+        return { id: c.id!, name: c.name, icon: c.icon, spent, limit, projected, state: stateOf(spent, limit, projected, fixed), txns: txByCat.get(c.id!) ?? [] }
       })
       .filter((r) => r.limit > 0 || r.spent > 0)
 
@@ -90,7 +97,17 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
     rows.sort((a, b) => (rank[a.state] - rank[b.state]) || b.spent - a.spent)
 
     const totalLimit = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
-    return { income, expense, net: income - expense, rows, totalLimit, projectedTotal: project(expense), canProject: canProject && isCurrent }
+    // Month-end projection: fixed bills contribute their known amount; only the
+    // flexible remainder extrapolates at the current daily pace.
+    let fixedSpent = 0
+    let fixedKnown = 0
+    for (const c of expenseCats) {
+      if (!isFixedCategory(c.name)) continue
+      const s = byCat.get(c.id!) ?? 0
+      fixedSpent += s
+      fixedKnown += Math.max(s, c.monthlyBudget || 0)
+    }
+    return { income, expense, net: income - expense, rows, totalLimit, projectedTotal: fixedKnown + project(expense - fixedSpent), canProject: canProject && isCurrent }
   }, [txns, categories, isCurrent, daysInMonth, dayOfMonth])
 
   const hasLimit = data.totalLimit > 0
@@ -168,7 +185,13 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
                       )}
                       <div className="traj-meta">
                         {r.state === 'none' ? (
-                          <span className="muted">{r.txns.length} {r.txns.length === 1 ? 'transaction' : 'transactions'}</span>
+                          r.id === null ? (
+                            <span className="muted">
+                              {r.txns.length === 1 ? '1 transaction needs' : `${r.txns.length} transactions need`} a category — tap to sort
+                            </span>
+                          ) : (
+                            <span className="muted">{r.txns.length} {r.txns.length === 1 ? 'transaction' : 'transactions'}</span>
+                          )
                         ) : r.state === 'over' ? (
                           <span className="over">over by {money(r.spent - r.limit)}</span>
                         ) : r.state === 'pace' ? (

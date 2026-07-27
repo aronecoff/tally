@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category } from '../db/db'
 import { money } from '../lib/format'
+import { isFixedCategory } from '../lib/categorize'
 import { shiftMonth, monthLabel, currentMonth } from '../lib/dates'
 import { Icon } from './Icon'
 
@@ -92,10 +93,9 @@ export function Analysis({ month, categories }: Props) {
   }, [txns, prevTxns, isCurrent, dayOfMonth])
 
   // Fixed vs flexible: what's locked in vs what you actually control.
-  const FIXED = useMemo(() => new Set(['rent', 'subscriptions', 'health']), [])
   const fixed = a.cats.reduce((s, c) => {
     const cat = c.id != null ? catById.get(c.id) : null
-    return cat && FIXED.has(cat.name.toLowerCase()) ? s + c.amt : s
+    return cat && isFixedCategory(cat.name) ? s + c.amt : s
   }, 0)
   const flexible = a.spend - fixed
 

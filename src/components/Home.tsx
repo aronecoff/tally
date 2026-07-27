@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { currentMonth, todayISO, monthLabel } from '../lib/dates'
+import { isFixedCategory } from '../lib/categorize'
 import { money } from '../lib/format'
 import { Icon } from './Icon'
 
@@ -75,7 +76,11 @@ export function Home({ categories, onEdit, onMore }: Props) {
     const rows: Row[] = expenseCats
       .map((c) => {
         const spent = byCat.get(c.id!) ?? 0
-        return { id: c.id!, name: c.name, icon: c.icon, spent, budget: c.monthlyBudget || 0, projected: project(spent) }
+        const budget = c.monthlyBudget || 0
+        // Fixed bills (rent, subs) never extrapolate: the month-end truth is the
+        // bill itself — what's paid, or the budgeted amount if it hasn't hit yet.
+        const projected = isFixedCategory(c.name) ? Math.max(spent, budget) : project(spent)
+        return { id: c.id!, name: c.name, icon: c.icon, spent, budget, projected }
       })
       .filter((r) => r.spent > 0 || r.budget > 0)
     const uncat = byCat.get(null) ?? 0
@@ -83,6 +88,16 @@ export function Home({ categories, onEdit, onMore }: Props) {
     rows.sort((a, b) => b.spent - a.spent)
 
     const totalBudget = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
+    // Month-end projection: fixed bills contribute their known amount; only the
+    // flexible remainder extrapolates at the current daily pace.
+    let fixedSpent = 0
+    let fixedKnown = 0
+    for (const c of expenseCats) {
+      if (!isFixedCategory(c.name)) continue
+      const s = byCat.get(c.id!) ?? 0
+      fixedSpent += s
+      fixedKnown += Math.max(s, c.monthlyBudget || 0)
+    }
     const maxDaily = Math.max(1, ...daily)
     return {
       income,
@@ -92,7 +107,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
       maxDaily,
       rows,
       totalBudget,
-      projectedTotal: project(spend),
+      projectedTotal: fixedKnown + project(spend - fixedSpent),
       canProject,
       avgPerDay: Math.round(spend / divisor),
     }
@@ -273,7 +288,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
                   )}
                   <div className="traj-meta">
                     {!hasBudget ? (
-                      <span className="muted">not budgeted</span>
+                      <span className="muted">{r.id === null ? 'needs a category — sort it in Budget' : 'not budgeted'}</span>
                     ) : over ? (
                       <span className="over">over by {money(r.spent - r.budget)}</span>
                     ) : overPace ? (

@@ -13,6 +13,15 @@
  * category id (falling back to Uncategorized when unmatched).
  */
 
+/**
+ * Categories that are fixed monthly bills — they land once (or as a fixed set)
+ * per month, so linear day-pace extrapolation is meaningless for them. The
+ * budget views project them as "already known": max(spent so far, the monthly
+ * budget). Shared with Analysis's fixed-vs-flexible split.
+ */
+const FIXED_CATEGORIES = new Set(['rent', 'subscriptions', 'health'])
+export const isFixedCategory = (name: string) => FIXED_CATEGORIES.has(name.trim().toLowerCase())
+
 type Rule = { match: RegExp; category: string }
 
 // Expense keyword → category. First match wins, so order = priority.
