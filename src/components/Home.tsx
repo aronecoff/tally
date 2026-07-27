@@ -159,15 +159,14 @@ export function Home({ categories, onEdit, onMore }: Props) {
       {/* Cash flow + budget verdict */}
       <div className="cf-card">
         <div className="cf-head">
-          <span className="cf-title">{monthLabel(month)} cash flow</span>
-          <span className={`cf-net num ${d.net >= 0 ? 'pos' : 'over'}`}>{money(d.net, { sign: true })}</span>
+          <span className="cf-title">{monthLabel(month)} at a glance</span>
         </div>
 
         {d.totalBudget > 0 && (
           <div className={`bud-verdict ${budgetState}`}>
             <div className="bud-verdict-top">
               <span className="bud-verdict-label">
-                {overBudget ? 'Over budget' : overPaceBudget ? 'On pace to go over' : 'Inside budget'}
+                {overBudget ? 'Over budget' : overPaceBudget ? 'Likely to go over' : "You're on track"}
               </span>
               <span className="bud-verdict-fig num">
                 {overBudget
@@ -179,22 +178,22 @@ export function Home({ categories, onEdit, onMore }: Props) {
               <div className={`traj-fill ${budgetState}`} style={{ width: `${budgetPct}%` }} />
             </div>
             <span className="bud-verdict-sub num">
-              {money(d.spend)} of {money(d.totalBudget)}
-              {d.canProject && !overBudget && <> · on pace for {money(d.projectedTotal)}</>}
+              {money(d.spend)} spent of {money(d.totalBudget)}
+              {d.canProject && !overBudget && <> · expecting ~{money(d.projectedTotal)} by month-end</>}
             </span>
           </div>
         )}
         <div className="cf-flows">
           <div className="cf-flow">
             <div className="cf-flow-top">
-              <span className="cf-flow-label"><span className="cf-dot in" /> In</span>
+              <span className="cf-flow-label"><span className="cf-dot in" /> Money in</span>
               <span className="cf-flow-amt num">{money(inTotal)}</span>
             </div>
             <div className="cf-bar"><div className="cf-bar-fill in" style={{ width: `${(inTotal / flowMax) * 100}%` }} /></div>
           </div>
           <div className="cf-flow">
             <div className="cf-flow-top">
-              <span className="cf-flow-label"><span className="cf-dot out" /> Out</span>
+              <span className="cf-flow-label"><span className="cf-dot out" /> Money out</span>
               <span className="cf-flow-amt num">{money(outTotal)}</span>
             </div>
             <div className="cf-bar"><div className="cf-bar-fill out" style={{ width: `${(outTotal / flowMax) * 100}%` }} /></div>
@@ -254,7 +253,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
           <span className="sect-note">
             {d.totalBudget > 0 ? (
               d.canProject ? (
-                <>proj. <strong className="num">{money(d.projectedTotal)}</strong> of {money(d.totalBudget)}</>
+                <>expecting ~<strong className="num">{money(d.projectedTotal)}</strong> of {money(d.totalBudget)}</>
               ) : (
                 <><strong className="num">{money(d.spend)}</strong> of {money(d.totalBudget)}</>
               )
@@ -264,7 +263,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
           </span>
         </div>
         <ul className="traj">
-          {d.rows.map((r) => {
+          {d.rows.filter((r) => r.spent > 0).map((r) => {
             const hasBudget = r.budget > 0
             const pct = hasBudget ? Math.min((r.spent / r.budget) * 100, 100) : 0
             const over = hasBudget && r.spent > r.budget
@@ -301,7 +300,24 @@ export function Home({ categories, onEdit, onMore }: Props) {
               </li>
             )
           })}
+          {d.rows.filter((r) => r.spent > 0).length === 0 && (
+            <li className="traj-empty">Nothing spent yet this month.</li>
+          )}
         </ul>
+        {/* Untouched budgets stay out of the way — one quiet line instead of a
+            wall of $0.00 rows. The full list always lives in the Budget tab. */}
+        {(() => {
+          const quiet = d.rows.filter((r) => r.spent === 0 && r.budget > 0)
+          if (quiet.length === 0) return null
+          const names = quiet.map((r) => r.name)
+          const listed = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3} more` : names.join(', ')
+          const ready = quiet.reduce((s, r) => s + r.budget, 0)
+          return (
+            <div className="traj-quiet">
+              Nothing yet in {listed} · {money(ready)} ready
+            </div>
+          )
+        })()}
       </div>
 
       {/* Recurring bills */}
