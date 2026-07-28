@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
@@ -32,4 +32,11 @@ export default defineConfig({
       },
     }),
   ],
+  test: {
+    // `.claude/worktrees/` holds full checkouts of this repo (agent worktrees),
+    // so their copies of every *.test.ts would otherwise be discovered and run
+    // alongside the real ones — doubling the suite and letting a stale worktree
+    // fail `npm test` on main.
+    exclude: [...configDefaults.exclude, '.claude/**'],
+  },
 })
