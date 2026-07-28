@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
 import { isFixedCategory } from '../lib/categorize'
+import { paceProjector } from '../lib/projection'
 import { monthLabel, currentMonth, dayLabel } from '../lib/dates'
 import { Icon } from './Icon'
 
@@ -60,11 +61,9 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
     }
     for (const list of txByCat.values()) list.sort((a, b) => b.amount - a.amount)
 
-    // Only forecast once ~20% into the month — projecting from day 1 (rent on the
-    // 1st) would wildly over-forecast. Past months already have dayOfMonth = full.
-    const frac = daysInMonth > 0 ? dayOfMonth / daysInMonth : 1
-    const canProject = frac >= 0.2
-    const project = (s: number) => (canProject ? Math.round(s / frac) : s)
+    // All pace math lives in lib/projection.ts (shared with Home). Past months
+    // arrive with dayOfMonth = full, so they never extrapolate.
+    const p = paceProjector(dayOfMonth, daysInMonth)
     const stateOf = (spent: number, limit: number, projected: number, fixed = false): State => {
       if (limit <= 0) return 'none'
       if (spent > limit) return 'over'
@@ -76,38 +75,30 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
     }
 
     const expenseCats = categories.filter((c) => c.kind === 'expense').sort((a, b) => a.sortOrder - b.sortOrder)
+    const catSpends = expenseCats.map((c) => ({
+      name: c.name,
+      spent: byCat.get(c.id!) ?? 0,
+      budget: c.monthlyBudget || 0,
+    }))
     const rows: Row[] = expenseCats
       .map((c) => {
         const spent = byCat.get(c.id!) ?? 0
         const limit = c.monthlyBudget || 0
-        // Fixed bills (rent, subs) never extrapolate: the month-end truth is the
-        // bill itself — what's paid, or the budgeted amount if it hasn't hit yet.
-        const fixed = isFixedCategory(c.name)
-        const projected = fixed ? Math.max(spent, limit) : project(spent)
-        return { id: c.id!, name: c.name, icon: c.icon, spent, limit, projected, state: stateOf(spent, limit, projected, fixed), txns: txByCat.get(c.id!) ?? [] }
+        const projected = p.forCategory(c.name, spent, limit)
+        return { id: c.id!, name: c.name, icon: c.icon, spent, limit, projected, state: stateOf(spent, limit, projected, isFixedCategory(c.name)), txns: txByCat.get(c.id!) ?? [] }
       })
       .filter((r) => r.limit > 0 || r.spent > 0)
 
     const uncat = byCat.get(null) ?? 0
     if (uncat > 0) {
-      rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, limit: 0, projected: project(uncat), state: 'none', txns: txByCat.get(null) ?? [] })
+      rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, limit: 0, projected: p.extrapolate(uncat), state: 'none', txns: txByCat.get(null) ?? [] })
     }
 
     const rank: Record<State, number> = { over: 0, pace: 1, near: 2, none: 3, ok: 4 }
     rows.sort((a, b) => (rank[a.state] - rank[b.state]) || b.spent - a.spent)
 
     const totalLimit = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
-    // Month-end projection: fixed bills contribute their known amount; only the
-    // flexible remainder extrapolates at the current daily pace.
-    let fixedSpent = 0
-    let fixedKnown = 0
-    for (const c of expenseCats) {
-      if (!isFixedCategory(c.name)) continue
-      const s = byCat.get(c.id!) ?? 0
-      fixedSpent += s
-      fixedKnown += Math.max(s, c.monthlyBudget || 0)
-    }
-    return { income, expense, net: income - expense, rows, totalLimit, projectedTotal: fixedKnown + project(expense - fixedSpent), canProject: canProject && isCurrent }
+    return { income, expense, net: income - expense, rows, totalLimit, projectedTotal: p.monthEnd(catSpends, expense), canProject: p.canProject && isCurrent }
   }, [txns, categories, isCurrent, daysInMonth, dayOfMonth])
 
   const hasLimit = data.totalLimit > 0

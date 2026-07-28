@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { currentMonth, todayISO, monthLabel } from '../lib/dates'
-import { isFixedCategory } from '../lib/categorize'
+import { paceProjector } from '../lib/projection'
 import { cleanMerchant } from '../lib/merchants'
 import { money } from '../lib/format'
 import { Icon } from './Icon'
@@ -64,41 +64,28 @@ export function Home({ categories, onEdit, onMore }: Props) {
         if (day >= 1 && day <= daysInMonth) daily[day - 1] += t.amount
       }
     }
-    // Project month-end at the current pace — but only once we're far enough in
-    // that a linear extrapolation is meaningful. Projecting from day 1 (e.g. rent
-    // paid on the 1st) would absurdly forecast 30× that. Below the threshold we
-    // just report actual spend (no forecast).
-    const frac = daysInMonth > 0 ? dayOfMonth / daysInMonth : 1
-    const canProject = frac >= 0.2
+    // All pace math lives in lib/projection.ts (shared with the Budget tab).
+    const p = paceProjector(dayOfMonth, daysInMonth)
     const divisor = dayOfMonth > 0 ? dayOfMonth : daysInMonth
-    const project = (s: number) => (canProject ? Math.round(s / frac) : s)
 
     const expenseCats = categories.filter((c) => c.kind === 'expense' && !c.deleted)
+    const catSpends = expenseCats.map((c) => ({
+      name: c.name,
+      spent: byCat.get(c.id!) ?? 0,
+      budget: c.monthlyBudget || 0,
+    }))
     const rows: Row[] = expenseCats
       .map((c) => {
         const spent = byCat.get(c.id!) ?? 0
         const budget = c.monthlyBudget || 0
-        // Fixed bills (rent, subs) never extrapolate: the month-end truth is the
-        // bill itself — what's paid, or the budgeted amount if it hasn't hit yet.
-        const projected = isFixedCategory(c.name) ? Math.max(spent, budget) : project(spent)
-        return { id: c.id!, name: c.name, icon: c.icon, spent, budget, projected }
+        return { id: c.id!, name: c.name, icon: c.icon, spent, budget, projected: p.forCategory(c.name, spent, budget) }
       })
       .filter((r) => r.spent > 0 || r.budget > 0)
     const uncat = byCat.get(null) ?? 0
-    if (uncat > 0) rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, budget: 0, projected: project(uncat) })
+    if (uncat > 0) rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, budget: 0, projected: p.extrapolate(uncat) })
     rows.sort((a, b) => b.spent - a.spent)
 
     const totalBudget = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
-    // Month-end projection: fixed bills contribute their known amount; only the
-    // flexible remainder extrapolates at the current daily pace.
-    let fixedSpent = 0
-    let fixedKnown = 0
-    for (const c of expenseCats) {
-      if (!isFixedCategory(c.name)) continue
-      const s = byCat.get(c.id!) ?? 0
-      fixedSpent += s
-      fixedKnown += Math.max(s, c.monthlyBudget || 0)
-    }
     const maxDaily = Math.max(1, ...daily)
     return {
       income,
@@ -108,8 +95,8 @@ export function Home({ categories, onEdit, onMore }: Props) {
       maxDaily,
       rows,
       totalBudget,
-      projectedTotal: fixedKnown + project(spend - fixedSpent),
-      canProject,
+      projectedTotal: p.monthEnd(catSpends, spend),
+      canProject: p.canProject,
       avgPerDay: Math.round(spend / divisor),
     }
   }, [monthTxns, categories, daysInMonth, dayOfMonth])

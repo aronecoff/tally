@@ -57,9 +57,10 @@ export function cleanMerchant(raw: string): string {
   s = s.replace(/\*\s?[a-z0-9]{3,}\b/gi, '')
   s = s.replace(/#\s?\d+\b/g, '')
   s = s.replace(/\s{2,}/g, ' ').replace(/[\s*·-]+$/g, '').trim()
-  // ALL CAPS → Title Case (leave mixed-case names alone).
+  // ALL CAPS → Title Case (leave mixed-case names alone). Apostrophes are NOT
+  // word boundaries — "TRADER JOE'S" must become "Trader Joe's", not "Joe'S".
   if (s.length > 3 && s === s.toUpperCase()) {
-    s = s.toLowerCase().replace(/(^|[\s./'-])([a-z])/g, (_m, sep, ch) => sep + ch.toUpperCase())
+    s = s.toLowerCase().replace(/(^|[\s./-])([a-z])/g, (_m, sep, ch) => sep + ch.toUpperCase())
   }
   return s
 }
