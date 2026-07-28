@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { db, type Category, type TxType } from '../db/db'
 import { money } from '../lib/format'
-import { Icon, ICON_KEYS } from './Icon'
+import { Icon } from './Icon'
+import { ICON_KEYS } from './iconPaths'
 
 interface Props {
   categories: Category[]
