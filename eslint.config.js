@@ -21,4 +21,17 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  // Supabase Edge Functions run on Deno, not in the browser, and deploy through
+  // Supabase rather than this build — tsconfig.app.json only includes `src`, so
+  // tsc never sees them. Their `@ts-nocheck` is deliberate: the repo's TS setup
+  // can't resolve Deno globals or `npm:`/URL import specifiers.
+  {
+    files: ['supabase/functions/**/*.ts'],
+    languageOptions: {
+      globals: { ...globals.node, Deno: 'readonly' },
+    },
+    rules: {
+      '@typescript-eslint/ban-ts-comment': 'off',
+    },
+  },
 ])

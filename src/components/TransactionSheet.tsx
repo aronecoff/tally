@@ -19,7 +19,7 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
   const [type, setType] = useState<TxType>(initial?.type ?? 'expense')
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
   const [date, setDate] = useState(initial?.date ?? todayISO())
-  const [categoryId, setCategoryId] = useState<number | null>(initial?.categoryId ?? null)
+  const [pickedCategoryId, setPickedCategoryId] = useState<number | null>(initial?.categoryId ?? null)
   const [note, setNote] = useState(initial?.note ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
   const [touchedCategory, setTouchedCategory] = useState(editing)
@@ -48,18 +48,33 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
     [categories, type],
   )
 
+  // A picked category that isn't valid for the current kind counts as unset —
+  // the type was toggled, or a sync from another device deleted the category.
+  // Derived during render, so no effect has to chase it after the fact.
+  const categoryId =
+    pickedCategoryId != null && visibleCategories.some((c) => c.id === pickedCategoryId)
+      ? pickedCategoryId
+      : null
+
   // Auto-suggest a category from the note — but only once, and never after the
-  // user has picked one, so it never fights their choice.
-  useEffect(() => {
+  // user has picked one, so it never fights their choice. Driven by the events
+  // that can change the answer (typing a note, switching expense/income) rather
+  // than by an effect, which would need a second render pass to apply it.
+  function suggestCategory(nextNote: string, nextType: TxType) {
     if (touchedCategory || guessedOnce.current) return
-    const guess = guessCategoryName(note)
+    const guess = guessCategoryName(nextNote)
     if (!guess) return
-    const match = visibleCategories.find((c) => c.name === guess)
+    const match = categories.find((c) => c.kind === nextType && c.name === guess)
     if (match) {
-      setCategoryId(match.id ?? null)
+      setPickedCategoryId(match.id ?? null)
       guessedOnce.current = true
     }
-  }, [note, touchedCategory, visibleCategories])
+  }
+
+  function changeType(next: TxType) {
+    setType(next)
+    suggestCategory(note, next)
+  }
 
   // Esc closes the sheet.
   useEffect(() => {
@@ -69,11 +84,6 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-
-  useEffect(() => {
-    if (categoryId == null) return
-    if (!visibleCategories.some((c) => c.id === categoryId)) setCategoryId(null)
-  }, [visibleCategories, categoryId])
 
   const amountNum = Number(amount)
   const valid = amount !== '' && !Number.isNaN(amountNum) && amountNum > 0
@@ -169,10 +179,10 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
         )}
 
         <div className="seg">
-          <button className={type === 'expense' ? 'seg-on' : ''} onClick={() => setType('expense')}>
+          <button className={type === 'expense' ? 'seg-on' : ''} onClick={() => changeType('expense')}>
             Expense
           </button>
-          <button className={type === 'income' ? 'seg-on' : ''} onClick={() => setType('income')}>
+          <button className={type === 'income' ? 'seg-on' : ''} onClick={() => changeType('income')}>
             Income
           </button>
         </div>
@@ -208,7 +218,7 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
                 className={`chip ${on ? 'on' : ''}`}
                 onClick={() => {
                   setTouchedCategory(true)
-                  setCategoryId(on ? null : c.id ?? null)
+                  setPickedCategoryId(on ? null : c.id ?? null)
                 }}
               >
                 <span className="chip-ic">
@@ -239,7 +249,10 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
             type="text"
             placeholder="e.g. Trader Joe's"
             value={note}
-            onChange={(e) => setNote(e.target.value)}
+            onChange={(e) => {
+              setNote(e.target.value)
+              suggestCategory(e.target.value, type)
+            }}
           />
         </label>
 

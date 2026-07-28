@@ -7,24 +7,34 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 /**
+ * Already a real app — installed PWA (standalone) or our native iOS/macOS
+ * WKWebView wrapper (which tags its user agent "TallyNative"). No install hint.
+ */
+function isInstalledSurface(): boolean {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as unknown as { standalone?: boolean }).standalone === true ||
+    / TallyNative\b/.test(navigator.userAgent)
+  )
+}
+
+/**
  * Slim banner that offers one-tap install. On desktop Chrome/Edge & Android it
  * uses the native `beforeinstallprompt`; on iOS Safari (which has no such event)
  * it shows the Share → Add to Home Screen hint. Hidden once installed/standalone.
  */
 export function InstallBanner() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
-  const [mode, setMode] = useState<'none' | 'prompt' | 'ios'>('none')
+  // iOS has no `beforeinstallprompt`, so its hint is decided from the user agent
+  // alone — known at first render, so derive it here rather than setting state
+  // from an effect (which would render 'none' first, then flash the banner in).
+  const [mode, setMode] = useState<'none' | 'prompt' | 'ios'>(() =>
+    !isInstalledSurface() && /iphone|ipad|ipod/i.test(navigator.userAgent) ? 'ios' : 'none',
+  )
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
-    // Already a real app — installed PWA (standalone) or our native iOS/macOS
-    // WKWebView wrapper (which tags its user agent "TallyNative"). No install hint.
-    const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (navigator as unknown as { standalone?: boolean }).standalone === true
-    if (standalone || / TallyNative\b/.test(navigator.userAgent)) return
-
-    if (/iphone|ipad|ipod/i.test(navigator.userAgent)) setMode('ios')
+    if (isInstalledSurface()) return
 
     const onPrompt = (e: Event) => {
       e.preventDefault()
