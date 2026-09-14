@@ -124,25 +124,25 @@ function detectTransferIds(txs: SyncedTx[]): Set<string> {
     if (list) list.push(t)
     else byAmt.set(cents, [t])
   }
+  const looksLikeTransfer = (t: SyncedTx) =>
+    EXCLUDE_RE.test([t.payee, t.description, t.memo].filter(Boolean).join(' '))
   for (const group of byAmt.values()) {
     if (group.length < 2) continue
-    const used = new Set<number>()
-    for (let i = 0; i < group.length; i++) {
-      if (used.has(i)) continue
-      for (let j = i + 1; j < group.length; j++) {
-        if (used.has(j)) continue
-        const a = group[i]
-        const b = group[j]
-        const opposite = Math.sign(Number(a.amount)) !== Math.sign(Number(b.amount))
-        const near = Math.abs((Number(a.posted) || 0) - (Number(b.posted) || 0)) <= 5 * 86400
-        if (opposite && a.account !== b.account && near) {
-          ids.add(a.sourceTxId)
-          ids.add(b.sourceTxId)
-          used.add(i)
-          used.add(j)
-          break
-        }
-      }
+    // An identical amount on opposite signs is weak evidence on its own: a $40
+    // refund and an unrelated $40 purchase look exactly like a transfer pair.
+    // If either side of the amount is ambiguous, do not guess a partner.
+    const negs = group.filter((t) => Number(t.amount) < 0)
+    const poss = group.filter((t) => Number(t.amount) > 0)
+    if (negs.length !== 1 || poss.length !== 1) continue
+    const a = negs[0]
+    const b = poss[0]
+    const near = Math.abs((Number(a.posted) || 0) - (Number(b.posted) || 0)) <= 5 * 86400
+    // Require corroboration from the text on at least one side. Single rows that
+    // self-identify are already dropped below; the pair detector exists to reach
+    // the FAR side of an obvious transfer, which often reads only "DEPOSIT".
+    if (a.account !== b.account && near && (looksLikeTransfer(a) || looksLikeTransfer(b))) {
+      ids.add(a.sourceTxId)
+      ids.add(b.sourceTxId)
     }
   }
   return ids
@@ -230,11 +230,34 @@ export async function syncBankTransactions(days = 120): Promise<number> {
 
   // Reconcile existing synced (sf:) rows to match `desired`.
   const existing = await db.transactions.filter((t) => (t.uid ?? '').startsWith('sf:')).toArray()
-  const existingByUid = new Map(existing.map((t) => [t.uid!, t]))
+  // Keep the LOWEST id per uid. A plain Map keeps the LAST row, so healing
+  // duplicates against it would tombstone the row the map points at and the
+  // resurrect branch below would bring it back on the next sync, re-doubling.
+  const existingByUid = new Map<string, Transaction>()
+  const dupes: Transaction[] = []
+  for (const t of existing) {
+    const prev = existingByUid.get(t.uid!)
+    if (!prev) existingByUid.set(t.uid!, t)
+    else if ((t.id ?? 0) < (prev.id ?? 0)) { existingByUid.set(t.uid!, t); dupes.push(prev) }
+    else dupes.push(t)
+  }
   let added = 0
+  // The bank only returned the last `days`, so anything older was never a
+  // candidate for `desired` and must not be reconciled away. Without this the
+  // whole history beyond the window was tombstoned on every single sync.
+  // One day of slack absorbs client/server clock skew at the boundary.
+  const windowStart = isoFromUnix(Math.floor(Date.now() / 1000) - (days + 1) * 86400)
+  // Likewise, an account missing from this payload (one bank erroring, a partial
+  // response) must not mass-delete that account's in-window rows.
+  const seenAccounts = new Set(incoming.map((t) => t.account || ''))
   await db.transaction('rw', db.transactions, async () => {
     for (const t of existing) {
-      if (t.uid && !t.deleted && !t.manual && !desired.has(t.uid)) {
+      if (
+        t.uid && !t.deleted && !t.manual &&
+        t.date >= windowStart &&
+        seenAccounts.has(t.account || '') &&
+        !desired.has(t.uid)
+      ) {
         await db.transactions.update(t.id!, { deleted: true, updatedAt: now }) // now a transfer / gone
       }
     }
@@ -263,6 +286,10 @@ export async function syncBankTransactions(days = 120): Promise<number> {
         })
       }
     }
+    // Collapse duplicates left behind by previously overlapping syncs.
+    for (const dup of dupes) {
+      if (!dup.deleted && !dup.manual) await db.transactions.update(dup.id!, { deleted: true, updatedAt: now })
+    }
     if (toAdd.length) await db.transactions.bulkAdd(toAdd)
   })
   return added
@@ -273,7 +300,18 @@ export async function syncBankTransactions(days = 120): Promise<number> {
  * transactions — independently. `total` counts live ACCOUNTS (not transactions);
  * transaction-sync failures are non-blocking.
  */
-export async function syncAllConnectors(): Promise<{ total: number; errors: string[] }> {
+let syncInFlight: Promise<{ total: number; errors: string[] }> | null = null
+
+/** Coalesces overlapping callers (boot timer, focus, 4-minute interval, Accounts
+ *  mount) onto one run. Two concurrent runs each saw an empty table and both
+ *  inserted, duplicating every bank transaction and account. */
+export function syncAllConnectors(): Promise<{ total: number; errors: string[] }> {
+  if (syncInFlight) return syncInFlight
+  syncInFlight = runAllConnectors().finally(() => { syncInFlight = null })
+  return syncInFlight
+}
+
+async function runAllConnectors(): Promise<{ total: number; errors: string[] }> {
   // Device sync FIRST: pull the cloud's truth (incl. `manual` pins and moved
   // dates) into Dexie before the bank overlay runs. Without this ordering, a
   // fresh boot ran the bank reconcile against pin-unaware local rows, re-dated

@@ -33,6 +33,9 @@ export default function App() {
   const [month, setMonth] = useState(currentMonth())
   const [tab, setTab] = useState<Tab>('home')
   const [editTxn, setEditTxn] = useState<Transaction | null>(null)
+  // The sheet's create branch existed but nothing could reach it: every caller
+  // passed an existing transaction, so there was no way to add one by hand.
+  const [adding, setAdding] = useState(false)
   const [ready, setReady] = useState(false)
   const [bankHealth, setBankHealth] = useState<BankHealth>('unknown')
   const { theme, toggle } = useTheme()
@@ -120,6 +123,7 @@ export default function App() {
                 <button className="icon-btn" onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month">›</button>
               </div>
             )}
+            <button className="icon-btn" onClick={() => setAdding(true)} aria-label="Add transaction">+</button>
             <Account />
             <button className="theme-toggle" onClick={toggle} aria-label="Toggle light or dark">
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
@@ -167,8 +171,12 @@ export default function App() {
         {!isHome && <nav className="tabbar">{navButtons('tab')}</nav>}
       </div>
 
-      {editTxn && (
-        <TransactionSheet categories={categories} initial={editTxn} onClose={() => setEditTxn(null)} />
+      {(editTxn || adding) && (
+        <TransactionSheet
+          categories={categories}
+          initial={editTxn}
+          onClose={() => { setEditTxn(null); setAdding(false) }}
+        />
       )}
     </div>
   )
