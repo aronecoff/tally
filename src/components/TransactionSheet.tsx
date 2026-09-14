@@ -16,6 +16,9 @@ interface Props {
 
 export function TransactionSheet({ categories, initial, onClose }: Props) {
   const editing = initial != null
+  // A rejected IndexedDB write (quota full, an upgrade blocked by another tab)
+  // used to be swallowed, so the sheet closed and the save looked like it worked.
+  const [saveErr, setSaveErr] = useState<string | null>(null)
   const [type, setType] = useState<TxType>(initial?.type ?? 'expense')
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '')
   const [date, setDate] = useState(initial?.date ?? todayISO())
@@ -119,10 +122,17 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
       manual: true,
       updatedAt: now,
     }
-    if (editing && initial?.id != null) {
-      await db.transactions.update(initial.id, fields)
-    } else {
-      await db.transactions.add({ ...fields, createdAt: now } as Transaction)
+    setSaveErr(null)
+    try {
+      if (editing && initial?.id != null) {
+        await db.transactions.update(initial.id, fields)
+      } else {
+        await db.transactions.add({ ...fields, createdAt: now } as Transaction)
+      }
+    } catch {
+      // Stay open with the typed values intact so nothing is lost.
+      setSaveErr('Could not save. Your browser storage may be full or in use by another tab.')
+      return
     }
     onClose()
   }
@@ -131,7 +141,12 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
     if (editing && initial?.id != null) {
       if (!window.confirm('Delete this transaction?')) return
       // Pin the delete: without `manual`, a bank re-sync would resurrect the row.
-      await db.transactions.update(initial.id, { deleted: true, manual: true, updatedAt: Date.now() })
+      try {
+        await db.transactions.update(initial.id, { deleted: true, manual: true, updatedAt: Date.now() })
+      } catch {
+        setSaveErr('Could not save. Your browser storage may be full or in use by another tab.')
+        return
+      }
       onClose()
     }
   }
@@ -271,6 +286,13 @@ export function TransactionSheet({ categories, initial, onClose }: Props) {
             />
           </label>
         </div>
+
+        {saveErr && (
+          <div className="limit-warn is-over">
+            <Icon name="alert" size={16} />
+            <span>{saveErr}</span>
+          </div>
+        )}
 
         <div className="sheet-actions">
           {editing && (

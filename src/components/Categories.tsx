@@ -66,7 +66,15 @@ function CategoryEditor({ category, showLimit }: { category: Category; showLimit
 
   async function patch(fields: Partial<Category>) {
     if (category.id == null) return
-    await db.categories.update(category.id, { ...fields, updatedAt: Date.now() })
+    try {
+      await db.categories.update(category.id, { ...fields, updatedAt: Date.now() })
+    } catch {
+      // A rejected write left the field showing a value that was never stored,
+      // which is the one place a failure here reads as success. Snap back to
+      // what is actually persisted so the UI never lies about saved state.
+      setName(category.name)
+      setLimit(String(category.monthlyBudget || ''))
+    }
   }
 
   async function saveLimit(v: string) {
