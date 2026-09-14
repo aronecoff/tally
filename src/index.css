@@ -1,78 +1,53 @@
 /* ============ Liquid-glass design system (adaptive light/dark) ============ */
 :root,
 :root[data-theme='dark'] {
-  --bg: #08080c;
+  /* coregular brand system: cream on deep ink, sage accent. Shared with Reps. */
+  --bg: #0C0414;                              /* Deep Ink, canvas */
   --mesh:
-    radial-gradient(60% 50% at 12% 8%, rgba(124, 124, 255, 0.22), transparent 70%),
-    radial-gradient(55% 45% at 88% 12%, rgba(56, 189, 248, 0.16), transparent 70%),
-    radial-gradient(60% 55% at 75% 92%, rgba(45, 212, 191, 0.14), transparent 72%),
-    radial-gradient(50% 45% at 20% 95%, rgba(244, 114, 182, 0.12), transparent 72%);
-  --glass: rgba(255, 255, 255, 0.055);
-  --glass-2: rgba(255, 255, 255, 0.1);
-  --glass-hi: rgba(255, 255, 255, 0.16);
-  --glass-border: rgba(255, 255, 255, 0.12);
-  --spec: rgba(255, 255, 255, 0.18);
-  --shadow: rgba(0, 0, 0, 0.45);
-  --field: rgba(255, 255, 255, 0.06);
-  --text: #f2f2f7;
-  --text-2: #b3b4c0;
-  --muted: #74757f;
-  --accent: #6e8bff;
-  --on-accent: #fff;
-  --over: #ff6b75;
-  --near: #f3b549;
-  --pos: #4ccc9a;
+    radial-gradient(65% 55% at 15% 6%, rgba(143, 160, 131, 0.10), transparent 72%),
+    radial-gradient(55% 45% at 88% 96%, rgba(244, 239, 228, 0.05), transparent 74%);
+  --glass: rgba(244, 239, 228, 0.05);         /* paper-alpha, so surfaces read warm */
+  --glass-2: rgba(244, 239, 228, 0.085);
+  --glass-hi: rgba(244, 239, 228, 0.14);
+  --glass-border: rgba(244, 239, 228, 0.11);
+  --spec: rgba(244, 239, 228, 0.16);
+  --shadow: rgba(0, 0, 0, 0.5);
+  --field: rgba(244, 239, 228, 0.06);
+  --text: #F4EFE4;                            /* Paper, 17.6:1 on ink */
+  --text-2: #9C978E;                          /* 6.9:1 */
+  --muted: #847F78;                           /* 5.1:1, still clears AA for body */
+  --accent: #8FA083;                          /* Sage, 7.2:1 on ink */
+  --on-accent: #0C0414;                       /* ink on sage, 7.2:1. Never white. */
+  --over: #C98A7E;                            /* clay */
+  --near: #C9A86B;                            /* amber */
+  --pos: #8FA083;                             /* sage */
 }
-
 :root[data-theme='light'] {
-  --bg: #e9ebf2;
+  --bg: #F4EFE4;                              /* Paper canvas, inverted */
   --mesh:
-    radial-gradient(60% 50% at 10% 6%, rgba(110, 139, 255, 0.28), transparent 70%),
-    radial-gradient(55% 45% at 92% 10%, rgba(56, 189, 248, 0.22), transparent 70%),
-    radial-gradient(60% 55% at 80% 95%, rgba(45, 212, 191, 0.2), transparent 72%),
-    radial-gradient(50% 48% at 15% 96%, rgba(244, 114, 182, 0.2), transparent 72%);
-  --glass: rgba(255, 255, 255, 0.55);
-  --glass-2: rgba(255, 255, 255, 0.72);
-  --glass-hi: rgba(255, 255, 255, 0.85);
-  --glass-border: rgba(255, 255, 255, 0.85);
-  --spec: rgba(255, 255, 255, 0.9);
-  --shadow: rgba(31, 38, 80, 0.14);
-  --field: rgba(255, 255, 255, 0.7);
-  --text: #14151c;
-  --text-2: #4f5360;
-  --muted: #868a98;
-  --accent: #5566f0;
-  --on-accent: #fff;
-  --over: #e23b46;
-  --near: #c9870b;
-  --pos: #11a877;
+    radial-gradient(65% 55% at 15% 6%, rgba(107, 122, 96, 0.12), transparent 72%),
+    radial-gradient(55% 45% at 88% 96%, rgba(12, 4, 20, 0.05), transparent 74%);
+  --glass: rgba(255, 255, 255, 0.5);
+  --glass-2: rgba(255, 255, 255, 0.68);
+  --glass-hi: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(12, 4, 20, 0.1);
+  --spec: rgba(255, 255, 255, 0.85);
+  --shadow: rgba(12, 4, 20, 0.12);
+  --field: rgba(255, 255, 255, 0.66);
+  --text: #0C0414;                            /* 17.6:1 on paper */
+  --text-2: #4A4640;
+  --muted: #6E6960;
+  --accent: #5C6A52;                          /* deeper sage, 5.0:1 on paper */
+  --on-accent: #F4EFE4;
+  --over: #9C4F42;
+  --near: #8A6A1F;
+  --pos: #4E5A46;
 }
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme]) {
-    --bg: #e9ebf2;
-    --glass: rgba(255, 255, 255, 0.55);
-    --glass-2: rgba(255, 255, 255, 0.72);
-    --glass-hi: rgba(255, 255, 255, 0.85);
-    --glass-border: rgba(255, 255, 255, 0.85);
-    --spec: rgba(255, 255, 255, 0.9);
-    --shadow: rgba(31, 38, 80, 0.14);
-    --field: rgba(255, 255, 255, 0.7);
-    --text: #14151c;
-    --text-2: #4f5360;
-    --muted: #868a98;
-    --accent: #5566f0;
-    --over: #e23b46;
-    --near: #c9870b;
-    --pos: #11a877;
-  }
-}
-
 :root {
   --r-lg: 24px;
   --r: 18px;
   --r-sm: 12px;
-  --blur: blur(28px) saturate(180%);
+  --blur: blur(28px) saturate(140%);
 }
 
 * {
@@ -98,7 +73,7 @@ body {
   overscroll-behavior: none;
   background: var(--mesh) fixed, var(--bg);
   color: var(--text);
-  font-family: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Avenir Next', 'Avenir', 'Futura', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -212,8 +187,8 @@ button {
   width: 11px;
   height: 11px;
   border-radius: 4px;
-  background: linear-gradient(140deg, var(--accent), #9b7cff);
-  box-shadow: 0 0 12px rgba(110, 139, 255, 0.6);
+  background: linear-gradient(140deg, var(--accent), var(--pos));
+  box-shadow: 0 0 12px rgba(143, 160, 131, 0.45);
 }
 .page-title {
   display: none;
@@ -290,7 +265,7 @@ button {
   font-size: 15px;
   letter-spacing: -0.01em;
   flex: 1;
-  box-shadow: 0 6px 18px rgba(85, 102, 240, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: 0 6px 18px rgba(143, 160, 131, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   transition: 0.13s;
 }
 .btn-primary:active {
@@ -905,7 +880,7 @@ button {
   padding: 10px 15px;
   font-weight: 600;
   font-size: 14px;
-  box-shadow: 0 6px 16px rgba(85, 102, 240, 0.3);
+  box-shadow: 0 6px 16px rgba(143, 160, 131, 0.28);
 }
 .csv-paste {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1182,7 +1157,7 @@ button {
     padding: 13px;
     font-weight: 600;
     font-size: 14px;
-    box-shadow: 0 6px 18px rgba(85, 102, 240, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    box-shadow: 0 6px 18px rgba(143, 160, 131, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
 
   .main {
@@ -1373,7 +1348,7 @@ body {
   color: var(--on-accent);
   display: grid;
   place-items: center;
-  box-shadow: 0 6px 16px rgba(85, 102, 240, 0.35);
+  box-shadow: 0 6px 16px rgba(143, 160, 131, 0.3);
   transition: 0.12s;
 }
 .home-send:disabled {
@@ -1734,7 +1709,7 @@ body {
 .an-cat-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--accent), #9b7cff);
+  background: linear-gradient(90deg, var(--accent), var(--pos));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
   transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1800,8 +1775,8 @@ body {
 .cf-dot.out { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
 .cf-bar { height: 8px; border-radius: 999px; background: var(--field); overflow: hidden; }
 .cf-bar-fill { height: 100%; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4); transition: width 0.6s cubic-bezier(0.22,1,0.36,1); }
-.cf-bar-fill.in { background: linear-gradient(90deg, var(--pos), #6fe0b8); }
-.cf-bar-fill.out { background: linear-gradient(90deg, var(--accent), #9b7cff); }
+.cf-bar-fill.in { background: linear-gradient(90deg, var(--pos), var(--accent)); }
+.cf-bar-fill.out { background: linear-gradient(90deg, var(--accent), var(--pos)); }
 
 /* Section cards */
 .card-sect {
@@ -1816,9 +1791,9 @@ body {
 
 /* Day by day */
 .daily { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
-.daily-bar { flex: 1 1 0; min-width: 0; border-radius: 3px 3px 2px 2px; background: linear-gradient(180deg, var(--accent), #7b6cff); opacity: 0.82; transition: height 0.4s cubic-bezier(0.22,1,0.36,1); min-height: 2px; }
+.daily-bar { flex: 1 1 0; min-width: 0; border-radius: 3px 3px 2px 2px; background: linear-gradient(180deg, var(--accent), var(--pos)); opacity: 0.82; transition: height 0.4s cubic-bezier(0.22,1,0.36,1); min-height: 2px; }
 .daily-bar.zero { background: var(--field); opacity: 1; }
-.daily-bar.today { background: linear-gradient(180deg, var(--pos), #52d3a3); opacity: 1; box-shadow: 0 0 10px rgba(76,204,154,0.5); }
+.daily-bar.today { background: linear-gradient(180deg, var(--pos), var(--accent)); opacity: 1; box-shadow: 0 0 10px rgba(143, 160, 131, 0.45); }
 .daily-axis { display: flex; justify-content: space-between; margin-top: 7px; font-size: 10.5px; color: var(--muted); }
 
 /* Trajectory / budgets */
@@ -1833,7 +1808,7 @@ body {
 .traj-figs .of { color: var(--muted); font-weight: 450; }
 .traj-bar { height: 6px; border-radius: 999px; background: var(--field); overflow: hidden; }
 .traj-fill { height: 100%; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.35); transition: width 0.55s cubic-bezier(0.22,1,0.36,1); background: var(--accent); }
-.traj-fill.ok { background: linear-gradient(90deg, var(--accent), #9b7cff); }
+.traj-fill.ok { background: linear-gradient(90deg, var(--accent), var(--pos)); }
 .traj-fill.pace { background: linear-gradient(90deg, var(--near), #ffcf6b); }
 .traj-fill.over { background: linear-gradient(90deg, var(--over), #ff9aa1); width: 100% !important; }
 .traj-fill.nobudget { background: repeating-linear-gradient(90deg, var(--field) 0 5px, transparent 5px 10px); opacity: 0.6; width: 100%; }
@@ -2028,7 +2003,7 @@ body {
   border: 1px solid var(--glass-border);
   box-shadow: inset 0 1px 0 var(--spec), 0 10px 34px var(--shadow);
 }
-.an-mix-bar { height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--accent), #9b7cff); overflow: hidden; }
+.an-mix-bar { height: 10px; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--pos)); overflow: hidden; }
 .an-mix-fixed { height: 100%; background: var(--field); border-right: 2px solid rgba(255,255,255,0.35); }
 .an-mix-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 11px; font-size: 12.5px; color: var(--text-2); flex-wrap: wrap; }
 .an-mix-row strong { color: var(--text); font-weight: 650; }
@@ -2055,7 +2030,7 @@ body {
 .an-savemonth-label { font-size: 12px; color: var(--muted); font-weight: 600; }
 .an-savemonth-track { height: 8px; border-radius: 999px; background: var(--field); overflow: hidden; }
 .an-savemonth-bar { height: 100%; border-radius: 999px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.3); transition: width 0.55s cubic-bezier(0.22,1,0.36,1); }
-.an-savemonth-bar.pos-bg { background: linear-gradient(90deg, var(--pos), #6fe0b8); }
+.an-savemonth-bar.pos-bg { background: linear-gradient(90deg, var(--pos), var(--accent)); }
 .an-savemonth-bar.over-bg { background: linear-gradient(90deg, var(--over), #ff9aa1); }
 .an-savemonth-amt { font-size: 12.5px; font-weight: 650; text-align: right; white-space: nowrap; }
 
