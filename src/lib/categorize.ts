@@ -35,7 +35,7 @@ const EXPENSE_RULES: Rule[] = [
   // Transport — rideshare, fuel, EV charging, transit, air, parking, auto insurance
   { match: /\buber\b|lyft|shell|chevron|exxon|\bgas\b|fuel|supercharger|charge ?point|insta ?charge|electrify|\bevgo\b|\btesla\b|parking|\bbart\b|transit|caltrain|\btoll\b|amtrak|delta|united|american air|airlines?|progressive|geico|state ?farm|allstate|\bdmv\b/i, category: 'Transport' },
   // Subscriptions — streaming, SaaS, digital, telecom, memberships
-  { match: /netflix|spotify|hulu|disney|youtube|\bhbo\b|paramount|peacock|adobe|figma|canva|notion|icloud|dropbox|1password|openai|chatgpt|anthropic|\bclaude\b|vercel|github|google ?(photos|one|storage|drive)|\bapple\.com|itunes|app ?store|audible|prime ?video|kindle|patreon|substack|\bkqed\b|flowsavvy|aragon|subscription|annual ?membership/i, category: 'Subscriptions' },
+  { match: /netflix|spotify|hulu|disney|youtube|\bhbo\b|paramount|peacock|adobe|figma|canva|notion|icloud|dropbox|1password|openai|chatgpt|anthropic|\bclaude\b|vercel|github|google ?(photos|one|storage|drive)|\bapple\.com|itunes|app ?store|audible|prime ?video|kindle|patreon|substack|\bkqed\b|flowsavvy|aragon|oura ?ring|subscription|annual ?membership/i, category: 'Subscriptions' },
   // Fitness EQUIPMENT retailers — before Health so "Rogue Fitness" doesn't
   // match the membership rule below (gear is a purchase, not healthcare).
   { match: /roguefitnes|\brogue\b/i, category: 'Shopping' },

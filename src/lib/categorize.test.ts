@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guessCategoryName, isFixedCategory } from './categorize'
+import { categorize, guessCategoryName, isFixedCategory } from './categorize'
 
 describe('isFixedCategory', () => {
   it('matches the fixed set case-insensitively', () => {
@@ -17,6 +17,14 @@ describe('guessCategoryName', () => {
     expect(guessCategoryName("trader joe's")).toBe('Groceries')
     expect(guessCategoryName('netflix')).toBe('Subscriptions')
     expect(guessCategoryName('uber ride downtown')).toBe('Transport')
+  })
+
+  it('files the Oura membership under Subscriptions, not Health', () => {
+    // The bank sends the merchant as one word; the normalized payee has a space.
+    expect(guessCategoryName('OURARING INC SAN FRANCISCO CA')).toBe('Subscriptions')
+    expect(guessCategoryName('Oura Ring')).toBe('Subscriptions')
+    // Must not be pulled into Health by the 'fitness' keyword that follows it.
+    expect(categorize({ payee: 'Oura Ring', description: 'OURARING INC SAN FRANCISCO CA', kind: 'expense' })).toBe('Subscriptions')
   })
 
   it('keeps expense text out of income categories', () => {
