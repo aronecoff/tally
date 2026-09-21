@@ -27,3 +27,6 @@ ios/build/
 *.njsproj
 *.sln
 *.sw?
+
+# Local dev-server config for the Claude preview pane
+.claude/

@@ -19,6 +19,15 @@ describe('guessCategoryName', () => {
     expect(guessCategoryName('uber ride downtown')).toBe('Transport')
   })
 
+  it('does not let a bank\u2019s \u201cPaid Early\u201d tag turn interest into Salary', () => {
+    // Some banks append "Paid Early" to deposits, so a bare \\bpaid\\b in the
+    // Salary rule captured interest and insurance reimbursements as wages.
+    expect(guessCategoryName('Deposit Interest Paid', 'income')).toBe('Other income')
+    expect(guessCategoryName('Acme Insurance Claim Payment Paid Early', 'income')).not.toBe('Salary')
+    // Real payroll still lands in Salary on its own keyword.
+    expect(guessCategoryName('Acme Corp Payroll Paid Early', 'income')).toBe('Salary')
+  })
+
   it('files an annual membership under Subscriptions, not Health', () => {
     // The bank sends the merchant as one word; the normalized payee has a space.
     expect(guessCategoryName('ANNUALMEMBERSHIP INC')).toBe('Subscriptions')

@@ -137,7 +137,11 @@ export function Home({ categories, onEdit, onMore }: Props) {
   const outTotal = d.spend
   const flowMax = Math.max(1, inTotal, outTotal)
 
-  // The one question the top of Home must answer: am I inside my budget?
+  // The top of Home answers one question: am I inside my BUDGET? That is not the
+  // same question as "am I inside my means", so the verdict says which one it is
+  // — otherwise a green "on track" sits directly above a red "over income" and
+  // the two read as a contradiction.
+  const overIncome = inTotal > 0 && outTotal > inTotal
   const overBudget = d.totalBudget > 0 && d.spend > d.totalBudget
   const overPaceBudget = d.totalBudget > 0 && !overBudget && d.canProject && d.projectedTotal > d.totalBudget
   const budgetPct = d.totalBudget > 0 ? Math.min(100, (d.spend / d.totalBudget) * 100) : 0
@@ -209,7 +213,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
           <div className={`bud-verdict ${budgetState}`}>
             <div className="bud-verdict-top">
               <span className="bud-verdict-label">
-                {overBudget ? 'Over budget' : overPaceBudget ? 'Likely to go over' : "You're on track"}
+                {overBudget ? 'Over budget' : overPaceBudget ? 'Likely to go over' : 'On track for your budget'}
               </span>
               <span className="bud-verdict-fig num">
                 {overBudget
@@ -246,7 +250,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
         {/* Savings — what actually stayed in your pocket this month. */}
         {(inTotal > 0 || outTotal > 0) && (
           <div className="cf-save">
-            <span className="cf-save-label">{d.net >= 0 ? 'Saved this month' : 'Spent more than earned'}</span>
+            <span className="cf-save-label">{d.net >= 0 ? 'Saved so far this month' : 'Spent more than earned so far'}</span>
             <span className="cf-save-figs">
               <strong className={`num ${d.net >= 0 ? 'pos' : 'over'}`}>{money(Math.abs(d.net))}</strong>
               {inTotal > 0 && (
@@ -262,15 +266,28 @@ export function Home({ categories, onEdit, onMore }: Props) {
       {/* Needs attention — the only list that's always visible. */}
       <div className="card-sect">
         <div className="sect-row"><span className="sect-title">Needs your eye</span></div>
+        {/* Living above your means outranks any single category being over, and
+            it is invisible to the per-category checks — `attention` only reads
+            budgets. Without this the card said "nothing needs you" in a month
+            that spent more than it earned. */}
+        {overIncome && (
+          <div className="allgood overflow-note">
+            <Icon name="alert" size={15} />
+            <span>
+              {money(outTotal - inTotal)} more has gone out than come in so far this month.
+              {d.totalBudget > inTotal && <> Your budgets total {money(d.totalBudget)}, more than this month&rsquo;s income.</>}
+            </span>
+          </div>
+        )}
         {attention.length > 0 ? (
           <ul className="traj">{attention.map(renderRow)}</ul>
         ) : (
-          <div className="allgood"><Icon name="sparkles" size={15} /> All budgets on track — nothing needs you.</div>
+          !overIncome && <div className="allgood"><Icon name="sparkles" size={15} /> All budgets on track — nothing needs you.</div>
         )}
       </div>
 
       <button className="detail-toggle" onClick={toggleDetail}>
-        <Icon name="chart" size={15} /> {showDetail ? 'Less detail' : 'More detail'}
+        <Icon name="chart" size={15} /> {showDetail ? 'Hide charts' : 'Show charts'}
       </button>
 
       {/* Day by day */}
