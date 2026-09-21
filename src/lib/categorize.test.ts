@@ -19,6 +19,15 @@ describe('guessCategoryName', () => {
     expect(guessCategoryName('uber ride downtown')).toBe('Transport')
   })
 
+  it('does not let Citizens\u2019 \u201cPaid Early\u201d tag turn interest into Salary', () => {
+    // Citizens appends "Citizens Paid Early" to deposits, so a bare \\bpaid\\b in the
+    // Salary rule captured interest and insurance reimbursements as wages.
+    expect(guessCategoryName('Interest on Deposit - Interest Paid', 'income')).toBe('Other income')
+    expect(guessCategoryName('Fetch Insurance Services Payment Citizens Paid Early', 'income')).not.toBe('Salary')
+    // Real payroll still lands in Salary on its own keyword.
+    expect(guessCategoryName('Karuna Adv Payroll Citizens Paid Early', 'income')).toBe('Salary')
+  })
+
   it('files the Oura membership under Subscriptions, not Health', () => {
     // The bank sends the merchant as one word; the normalized payee has a space.
     expect(guessCategoryName('OURARING INC SAN FRANCISCO CA')).toBe('Subscriptions')

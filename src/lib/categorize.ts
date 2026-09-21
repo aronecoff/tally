@@ -57,8 +57,11 @@ const EXPENSE_RULES: Rule[] = [
 
 // Income keyword → category. Only applied to income transactions.
 const INCOME_RULES: Rule[] = [
-  { match: /payroll|salary|direct ?dep|paycheck|\bpaid\b/i, category: 'Salary' },
+  // Interest/refunds first: Citizens appends "Paid Early" to every deposit, so a
+  // bare \bpaid\b in the Salary rule swallowed interest and reimbursements.
+  // Real payroll always carries "payroll"/"direct dep"/"paycheck" of its own.
   { match: /refund|interest ?(payment|paid)?|dividend|cash ?back|rebate|reimburse/i, category: 'Other income' },
+  { match: /payroll|salary|direct ?dep|paycheck/i, category: 'Salary' },
   { match: /invoice|freelance|consult|stripe|gumroad|\bclient\b/i, category: 'Freelance' },
 ]
 
