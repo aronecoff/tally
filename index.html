@@ -5,20 +5,42 @@
     <link rel="icon" type="image/svg+xml" href="/tally/icon.svg" />
     <link rel="apple-touch-icon" href="/tally/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0C0414" />
-    <!-- Display face for hero figures and card titles. Body/UI stays Avenir Next
-         (the coregular brand sans); this is the editorial counterpoint. -->
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#09090B" />
+    <!-- Theme before first paint (no dark frame for light users). The stored
+         preference is 'system' | 'light' | 'dark'; 'system' follows the OS.
+         useTheme() takes over after mount. -->
+    <script>
+      (function () {
+        var t = 'dark'
+        try {
+          var p = localStorage.getItem('tally-theme')
+          if (p === 'light' || p === 'dark') t = p
+          else t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        } catch (e) {
+          t = 'dark'
+        }
+        document.documentElement.setAttribute('data-theme', t)
+        if (t === 'light') {
+          var m = document.querySelector('meta[name="theme-color"]')
+          if (m) m.setAttribute('content', '#F4EFE4')
+        }
+      })()
+    </script>
+    <!-- Display face for hero figures and section titles (upright only). Body/UI
+         stays Avenir Next; this is the editorial counterpoint. Cached offline by
+         the service worker (vite.config.ts runtimeCaching). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0&display=swap"
       rel="stylesheet"
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Tally — Personal Finance</title>
-    <script type="module" crossorigin src="/tally/assets/index-C8ywKjrV.js"></script>
-    <link rel="stylesheet" crossorigin href="/tally/assets/index-SfrPE909.css">
+    <script type="module" crossorigin src="/tally/assets/index-DKEISmu1.js"></script>
+    <link rel="stylesheet" crossorigin href="/tally/assets/index-CPqSW1Nz.css">
   <link rel="manifest" href="/tally/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/tally/registerSW.js"></script></head>
   <body>
     <div id="root"></div>
