@@ -14,10 +14,15 @@ enum TallyTheme: String {
 
     var canvas: UIColor {
         self == .dark
-            ? UIColor(red: 0.047, green: 0.016, blue: 0.078, alpha: 1) // Deep Ink #0C0414
+            ? UIColor(red: 0.035, green: 0.035, blue: 0.043, alpha: 1) // canvas #09090B (the web --bg)
             : UIColor(red: 0.957, green: 0.937, blue: 0.894, alpha: 1) // Paper #F4EFE4
     }
-    var ink: UIColor { self == .dark ? TallyTheme.light.canvas : TallyTheme.dark.canvas }
+    /// Type colour: Paper on the dark canvas, Deep Ink #0C0414 on Paper.
+    var ink: UIColor {
+        self == .dark
+            ? TallyTheme.light.canvas
+            : UIColor(red: 0.047, green: 0.016, blue: 0.078, alpha: 1)
+    }
     var sage: UIColor {
         self == .dark
             ? UIColor(red: 0.561, green: 0.627, blue: 0.514, alpha: 1) // #8FA083
@@ -109,6 +114,7 @@ struct WebView: UIViewRepresentable {
             // The window's interface style drives the status bar: light content
             // on ink, dark content on paper.
             web.window?.overrideUserInterfaceStyle = theme.style
+            web.window?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
             offlineView?.removeFromSuperview()
             if offlineView != nil { offlineView = nil; showOffline() }
         }
@@ -178,6 +184,32 @@ struct WebView: UIViewRepresentable {
             return top
         }
 
+        // ---- JavaScript dialogs ------------------------------------------------
+        // WKWebView shows nothing for alert()/confirm() unless the host app
+        // implements these, and confirm() then silently returns false — which
+        // is why Delete used to do nothing in the app. The web UI now confirms
+        // in-sheet; these are the native backstop.
+        func webView(_ webView: WKWebView,
+                     runJavaScriptAlertPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping () -> Void) {
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
+            guard let top = topController() else { completionHandler(); return }
+            top.present(alert, animated: true)
+        }
+
+        func webView(_ webView: WKWebView,
+                     runJavaScriptConfirmPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping (Bool) -> Void) {
+            let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(false) })
+            alert.addAction(UIAlertAction(title: "OK", style: .destructive) { _ in completionHandler(true) })
+            guard let top = topController() else { completionHandler(false); return }
+            top.present(alert, animated: true)
+        }
+
         // ---- Navigation policy -------------------------------------------------
         // Non-web schemes (mailto:, tel:, bank apps' deep links from a portal)
         // belong to the system, not the web view.
@@ -237,19 +269,19 @@ struct WebView: UIViewRepresentable {
                 overlay.translatesAutoresizingMaskIntoConstraints = false
 
                 let title = UILabel()
-                title.text = "Can't reach Tally"
+                title.text = "Tally is offline"
                 title.textColor = theme.ink
                 title.font = .preferredFont(forTextStyle: .headline)
 
                 let detail = UILabel()
-                detail.text = "Check your connection. Retrying on its own."
+                detail.text = "Reconnecting automatically."
                 detail.textColor = theme.ink.withAlphaComponent(0.62)
                 detail.font = .preferredFont(forTextStyle: .subheadline)
                 detail.numberOfLines = 0
                 detail.textAlignment = .center
 
                 var buttonConfig = UIButton.Configuration.filled()
-                buttonConfig.title = "Retry now"
+                buttonConfig.title = "Try again"
                 buttonConfig.cornerStyle = .capsule
                 buttonConfig.baseBackgroundColor = theme.sage
                 buttonConfig.baseForegroundColor = theme.canvas

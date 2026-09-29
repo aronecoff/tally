@@ -1,0 +1,157 @@
+/* Activity ([data-screen="activity"]): .activity, .txn-day*, .txn-filter,
+   .txn-count, .txn-empty. The rows themselves use the shared row anatomy in
+   primitives.css (.txn-row: glyph | title + meta | figure, 60pt); this file
+   holds the ledger around them: the count line, the filter, the day headers
+   and the empty states.
+   @layer screens. Owner: S2-activity. */
+
+@layer screens {
+  /* ---- Count line: the ledger's only summary (deliberately no hero) ------ */
+  .txn-count {
+    margin: var(--s-1) 0 var(--s-4);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    color: var(--text-2);
+  }
+
+  /* ---- Filter: two quiet 32pt pills, shown only while a posted expense
+     needs a category. Never amber: it is a view, not a warning. ----------- */
+  .txn-filter {
+    display: flex;
+    gap: var(--s-1);
+    margin: calc(-1 * var(--s-1)) 0 var(--s-4);
+  }
+
+  .txn-filter > button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 var(--s-3);
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-3);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-medium);
+    line-height: 1;
+    letter-spacing: 0.005em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+      transform var(--dur-2) var(--ease-out);
+  }
+
+  /* Hit slop: 32 + 2 x 6 = 44. */
+  .txn-filter > button::after {
+    content: '';
+    position: absolute;
+    inset: -6px -2px;
+  }
+
+  .txn-filter > button:active {
+    transform: scale(var(--press-scale));
+    transition-duration: var(--dur-press);
+  }
+
+  .txn-filter > button.on {
+    background: var(--fill-press);
+    color: var(--text-1);
+  }
+
+  .txn-filter em {
+    font-style: normal;
+    color: var(--text-2);
+  }
+
+  .txn-filter > button.on em {
+    color: var(--text-1);
+  }
+
+  /* ---- Day groups: an eyebrow heading with the day's total, then rows ---- */
+  .txn-day + .txn-day {
+    margin-top: var(--s-5);
+  }
+
+  .txn-day-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s-3);
+    padding-bottom: var(--s-1);
+    font-size: var(--fs-micro);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .txn-day-head .num {
+    font-size: var(--fs-caption);
+    font-weight: var(--w-medium);
+    line-height: 1.4;
+    text-transform: none;
+  }
+
+  /* ---- Row meta: state in words, never a badge --------------------------- */
+  [data-screen="activity"] .txn-uncat {
+    color: var(--text-2);
+  }
+
+  /* A pending charge is not settled yet: its figure steps back one level. */
+  [data-screen="activity"] .txn-row.is-pending .txn-amt {
+    color: var(--text-2);
+  }
+
+  /* ---- Entrance: first view only (.enter), short and capped at 8 rows ---- */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-screen="activity"] .txn-row {
+      animation-duration: 0.32s;
+      animation-delay: calc(var(--i, 0) * 24ms);
+    }
+  }
+
+  /* ---- Empty month, and a filter with nothing left in it ----------------- */
+  .txn-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-12) var(--s-6) var(--s-8);
+    text-align: center;
+    color: var(--text-3);
+  }
+
+  .txn-empty p {
+    margin: 0;
+    font-size: var(--fs-row);
+    line-height: 1.45;
+    color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  .txn-empty .detail-toggle {
+    margin: var(--s-1) auto 0;
+  }
+
+  .txn-empty.is-filtered {
+    padding-top: var(--s-8);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .txn-filter > button:not(.on):hover {
+      color: var(--text-2);
+    }
+  }
+
+  @media (min-width: 920px) {
+    /* One left edge for the count, the filter, the headers and the rows. */
+    .activity {
+      max-width: 660px;
+      margin-inline: auto;
+    }
+  }
+}

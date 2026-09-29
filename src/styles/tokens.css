@@ -1,0 +1,229 @@
+/* Tokens: one dark block, one light block, one derived (theme-agnostic) block,
+   then the media overrides. Colour literals (rgb/rgba/hex) belong here and
+   nowhere else. The canvas stays #09090B (approved 2026-09-21); brand Deep Ink
+   #0C0414 is --ink, used for light-theme type and the icon only.
+   An inline boot script in index.html always sets data-theme before first
+   paint, so there is no prefers-color-scheme fallback block.
+   @layer tokens. Owner: S1A. */
+
+@layer tokens {
+  /* ---- Dark (default) --------------------------------------------------- */
+  :root,
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --ink: #0C0414;
+    --paper: #F4EFE4;
+    --bg: #09090B;
+    --surface-1: color-mix(in srgb, var(--paper) 4%, var(--bg)); /* ≈#131213, the sheet */
+    --surface-2: color-mix(in srgb, var(--paper) 11%, var(--bg)); /* ≈#232220, grouped cells above the sheet */
+    --surface-3: color-mix(in srgb, var(--paper) 15%, var(--bg)); /* ≈#2C2B29, seg thumb, grab bar */
+    --fill: rgb(244 239 228 / 0.07); /* standalone fields, chips, pills */
+    --fill-press: rgb(244 239 228 / 0.11);
+    --scrim: rgb(0 0 0 / 0.55);
+    --hairline: rgb(244 239 228 / 0.12);
+    --text-1: #F4EFE4; /* ≈18:1 */
+    --text-2: #B3AEA4; /* ≈9.4:1, sentences, sub-lines */
+    --text-3: #8E8981; /* ≈5.9:1 on bg, ≈5.3:1 on surface-1: eyebrows, captions, placeholders */
+    --accent: #8FA083;
+    --ok: #8FA083;
+    --on-accent: var(--bg);
+    --near: #C9A86B; /* text */
+    --near-mark: #C9A86B; /* thin marks */
+    --over: #C98A7E;
+    --over-mark: #C98A7E;
+    --mesh: linear-gradient(180deg, rgba(244, 239, 228, 0.022), transparent 46%); /* approved de-tacky top light */
+    --elev-sheet: 0 -16px 48px -16px rgb(0 0 0 / 0.7);
+    --elev-thumb: none; /* the seg thumb shadow exists in light only */
+
+    /* Category palette (Budget wheel): approved colours, unchanged. */
+    --cat-rent: #6F91A3;
+    --cat-groceries: #6E8060;
+    --cat-shopping: #8FA083;
+    --cat-transport: #C9A86B;
+    --cat-dining: #C98A7E;
+    --cat-subscriptions: #8C7FA8;
+    --cat-health: #B9808F;
+    --cat-fun: #B08E5E;
+    --cat-other: #8A867E;
+
+    /* Tier palette (Accounts map). */
+    --tier-cash: #8FA083;
+    --tier-brokerage: #8C7FA8;
+    --tier-retirement: #6F91A3;
+    --tier-benefit: #A79B87;
+    --tier-credit: #C98A7E;
+  }
+
+  /* ---- Light (Paper) ----------------------------------------------------- */
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --bg: var(--paper);
+    --surface-1: #EFE9DD; /* the sheet, one step below Paper, reads lifted on the ink scrim */
+    --surface-2: #FFFDF8; /* grouped cells, solid, with hairline */
+    --surface-3: #FFFFFF; /* seg thumb */
+    --fill: rgb(12 4 20 / 0.05);
+    --fill-press: rgb(12 4 20 / 0.08);
+    --scrim: rgb(12 4 20 / 0.28);
+    --hairline: rgb(12 4 20 / 0.12);
+    --text-1: #0C0414;
+    --text-2: #4A4640; /* 8.2:1 */
+    --text-3: #66615A; /* 5.35:1 on Paper, ≥5.0:1 on #EFE9DD */
+    --accent: #5C6A52;
+    --ok: #5C6A52;
+    --on-accent: var(--paper);
+    --near: #765A18; /* 5.6:1 text */
+    --near-mark: #A8843B; /* 3.04:1 mark. The spec's #B08A3E measures 2.80:1 on Paper; same hue, darkened to clear 3:1 */
+    --over: #924638; /* 5.8:1 text */
+    --over-mark: #B5685A; /* ≥3:1 mark */
+    --mesh: none; /* a Paper canvas stays flat */
+    --elev-sheet: 0 -12px 40px -16px rgb(12 4 20 / 0.18);
+    --elev-thumb: 0 1px 2px rgb(12 4 20 / 0.08); /* the one permitted small shadow */
+    --viz-strong: color-mix(in srgb, var(--text-1) 46%, transparent); /* ≈3.25:1 on Paper */
+
+    /* Category palette, light variants (plat-28, ≥3:1 on Paper). */
+    --cat-rent: #6D8EA0;
+    --cat-groceries: #66785A;
+    --cat-shopping: #7F8E75;
+    --cat-transport: #A18656;
+    --cat-dining: #B57C71;
+    --cat-subscriptions: #7E7199;
+    --cat-health: #B27B89;
+    --cat-fun: #A48457;
+    --cat-other: #7D7970;
+
+    --tier-cash: #6E7F62;
+    --tier-brokerage: #6F6390;
+    --tier-retirement: #557A8E;
+    --tier-benefit: #7E735F;
+    --tier-credit: #A65E51;
+  }
+
+  /* ---- Derived, theme-agnostic ------------------------------------------- */
+  :root {
+    /* Data viz: one income/spending mapping everywhere. */
+    --track: color-mix(in srgb, var(--text-1) 10%, transparent); /* rail and bar tracks */
+    --viz-soft: color-mix(in srgb, var(--text-1) 20%, transparent); /* INCOME, fixed segment, hatch, zero stubs */
+    --viz-strong: color-mix(in srgb, var(--text-1) 42%, transparent); /* SPENDING and neutral fills (light: 46%) */
+    --viz-sel: color-mix(in srgb, var(--text-1) 60%, transparent);
+    --hatch: repeating-linear-gradient(45deg, var(--viz-soft) 0 3px, transparent 3px 6px);
+    --ok-tint: color-mix(in srgb, var(--ok) 14%, transparent);
+    --near-tint: color-mix(in srgb, var(--near-mark) 14%, transparent);
+    --over-tint: color-mix(in srgb, var(--over-mark) 14%, transparent);
+    --chrome: color-mix(in srgb, var(--bg) 92%, transparent); /* tab bar only */
+    /* The Quiet list. Gate variant B: --group-bg: color-mix(in srgb, var(--text-1) 4%, transparent)
+       together with --group-pad: var(--s-4). */
+    --group-bg: transparent;
+    --group-pad: 0px;
+    /* Paper grain (0.038 opacity SVG noise). */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.038'/%3E%3C/svg%3E");
+
+    /* Type */
+    --font-ui: 'Avenir Next', 'Avenir', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Instrument Serif', Georgia, 'Times New Roman', serif; /* always 400, font-synthesis: none */
+    --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace; /* pasted tokens only */
+    --w-regular: 400;
+    --w-medium: 500;
+    --w-demi: 600;
+    --fs-hero: clamp(46px, 13vw, 56px); /* /1, display 400, -0.015em */
+    --fs-figure: 36px; /* /1, display 400, -0.01em */
+    --fs-title: 22px; /* /1.1, display 400, -0.005em */
+    --fs-headline: 17px; /* /1.3, ui 600, -0.01em */
+    --fs-row: 15px; /* /1.3, ui 500, -0.005em (figures tnum, 0) */
+    --fs-input: 16px; /* every input, select and textarea: the floor that prevents iOS zoom */
+    --fs-meta: 13px; /* /1.35, ui 400 (pills 500), +0.005em */
+    --fs-caption: 12px; /* /1.4, ui 400, +0.01em */
+    --fs-micro: 11px; /* /1.2, ui 600 caps +0.1em (eyebrow) or +0.06em (tag); axis 500 */
+    --fs-tab: 10px; /* /1, ui 500 (600 active), +0.01em */
+
+    /* Spacing (4/8 grid) */
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 20px;
+    --s-6: 24px;
+    --s-8: 32px;
+    --s-10: 40px;
+    --s-12: 48px;
+    --gutter: 16px;
+
+    /* Radii */
+    --r-xs: 4px; /* tags, map tiles, dots */
+    --r-sm: 8px;
+    --r-md: 12px; /* fields, buttons, banners, seg */
+    --r-lg: 16px; /* field groups */
+    --r-xl: 24px; /* sheet top corners */
+    --r-pill: 999px;
+
+    /* Controls, rows and layout */
+    --ctl-lg: 48px; /* inputs, primary and danger buttons */
+    --ctl-md: 36px; /* pills, chips, legend rows */
+    --ctl-sm: 28px; /* seg buttons in a 32px seg */
+    --hit: 44px;
+    --row-1: 48px; /* single-line rows */
+    --row-2: 60px; /* two-line rows */
+    --glyph: 20px;
+    --glyph-gap: 14px; /* row text starts at gutter + 34px */
+    --head-h: 44px;
+    --tabbar-h: 50px;
+    --app-max: 460px;
+
+    /* Elevation: in-flow content never casts a shadow. */
+    --elev-0: none;
+
+    /* Motion */
+    --dur-press: 90ms;
+    --dur-1: 160ms; /* colour / state */
+    --dur-2: 240ms; /* press release, disclosure, chevrons, dim, tab crossfade */
+    --dur-3: 380ms; /* settle, selection moves, seg */
+    --dur-4: 600ms; /* rails grow once */
+    --dur-sheet: 480ms;
+    --dur-sheet-out: 280ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+    --ease-spring: cubic-bezier(0.34, 1.12, 0.64, 1); /* the seg thumb ONLY */
+    --press-scale: 0.97;
+
+    /* Z-index */
+    --z-chrome: 20;
+    --z-tabbar: 30;
+    --z-sheet: 100;
+  }
+
+  @supports (transition-timing-function: linear(0, 1)) {
+    :root {
+      --ease-spring: linear(0, 0.02 2%, 0.08 5%, 0.2 9%, 0.4 15%, 0.62 22%, 0.8 30%, 0.93 39%, 1.005 49%, 1.02 58%, 1.012 70%, 1.003 84%, 1); /* peak 1.02 */
+    }
+  }
+
+  /* ---- Media overrides (theme-qualified, placed last) --------------------
+     A bare :root inside a media block loses to the theme selectors (0,2,0),
+     so only --hairline-w may sit on bare :root. */
+  :root {
+    --hairline-w: 1px;
+  }
+
+  @media (min-resolution: 2dppx) {
+    :root {
+      --hairline-w: 0.5px;
+    }
+    :root[data-theme='dark'] {
+      --hairline: rgb(244 239 228 / 0.16);
+    }
+    :root[data-theme='light'] {
+      --hairline: rgb(12 4 20 / 0.14);
+    }
+  }
+
+  @media (prefers-contrast: more) {
+    :root[data-theme='dark'] {
+      --text-3: var(--text-2);
+      --hairline: rgb(244 239 228 / 0.22);
+    }
+    :root[data-theme='light'] {
+      --text-3: var(--text-2);
+      --hairline: rgb(12 4 20 / 0.22);
+    }
+  }
+}

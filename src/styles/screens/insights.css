@@ -1,0 +1,525 @@
+/* Insights ([data-screen="insights"]): .analysis, .an-* and the cash-flow
+   chart (.cfc-*). The hero uses the shared .hero-* stack; sections use .sect.
+   @layer screens. Owner: S2-insights. */
+
+@layer screens {
+  .analysis {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .analysis h2 {
+    margin: 0;
+  }
+
+  /* On a phone the second side section is not the hero's sibling, so it draws
+     the section rule itself (24 + hairline + 24). */
+  .an-side > .sect:first-child {
+    border-top: var(--hairline-w) solid var(--hairline);
+    padding-top: var(--s-6);
+  }
+
+  /* A section note that does not fit beside its title drops below it. */
+  .an-head {
+    flex-wrap: wrap;
+    row-gap: var(--s-1);
+  }
+
+  /* The comparison sentence carries state: less than last month is good. */
+  .an-cmp.pos {
+    color: var(--ok);
+  }
+
+  .an-cmp.over {
+    color: var(--over);
+  }
+
+  /* ---- Lists: one grid (glyph | text | figure), one right edge ----------- */
+  .an-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--group-pad);
+    background: var(--group-bg);
+  }
+
+  /* Glyph | main. The figure sits on the name line; the second line is the
+     meta (or, by category, the share bar). Long-press raises no text loupe. */
+  .an-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr);
+    column-gap: var(--glyph-gap);
+    align-items: center;
+    min-height: var(--row-2);
+    padding: 12px 0;
+  }
+
+  .an-main {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .an-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s-3);
+  }
+
+  .an-name {
+    min-width: 0;
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .an-sub {
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .an-fig {
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .an-cat-barrow {
+    display: grid;
+    grid-template-columns: 1fr 36px;
+    gap: 10px;
+    align-items: center;
+    margin-top: 3px;
+  }
+
+  .an-cat-track {
+    display: block;
+    height: 3px;
+    border-radius: var(--r-pill);
+    background: var(--track);
+    overflow: hidden;
+  }
+
+  .an-cat-fill {
+    display: block;
+    background: var(--viz-strong);
+  }
+
+  .an-cat-pct {
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    color: var(--text-3);
+    text-align: right;
+  }
+
+  /* ---- Fixed vs flexible ---------------------------------------------------- */
+  /* Flexible = SPENDING strong; the fixed segment is soft. Two segments, 2px apart. */
+  .an-mix-bar {
+    display: flex;
+    gap: 2px;
+    height: 6px;
+  }
+
+  .an-mix-seg {
+    flex: 1 1 0;
+    min-width: 2px;
+    border-radius: var(--r-pill);
+  }
+
+  .an-mix-seg.fixed,
+  .an-mix-dot.fixed {
+    background: var(--viz-soft);
+  }
+
+  .an-mix-seg.flex,
+  .an-mix-dot.flex {
+    background: var(--viz-strong);
+  }
+
+  .an-mix-key {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--s-2) var(--s-3);
+    margin-top: var(--s-3);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    color: var(--text-2);
+  }
+
+  .an-mix-key > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .an-mix-key strong {
+    color: var(--text-1);
+    font-weight: var(--w-medium);
+  }
+
+  .an-mix-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .an-mix-note {
+    margin: var(--s-3) 0 0;
+    font-size: var(--fs-meta);
+    line-height: 1.45;
+    color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  .an-mix-note strong {
+    color: var(--text-1);
+    font-weight: var(--w-demi);
+  }
+
+  /* ---- Footing receipt ------------------------------------------------------ */
+  .an-foot {
+    margin: 0;
+    font-size: var(--fs-caption);
+    line-height: 1.5;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+    text-wrap: pretty;
+  }
+
+  .an-foot svg {
+    color: var(--ok);
+    vertical-align: -2px;
+    margin-right: 5px;
+  }
+
+  .an-foot.warn svg {
+    color: var(--near);
+  }
+
+  .an-foot strong {
+    color: var(--text-2);
+    font-weight: var(--w-demi);
+  }
+
+  /* ---- Cash-flow chart ------------------------------------------------------ */
+  .cfc {
+    margin-top: var(--s-5);
+  }
+
+  /* 16px above the plot holds the ceiling tick. */
+  .cfc-plot {
+    position: relative;
+    display: flex;
+    padding-top: 16px;
+  }
+
+  .cfc-grid {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    top: 16px;
+    border-top: var(--hairline-w) dashed var(--hairline);
+    pointer-events: none;
+  }
+
+  .cfc-tick {
+    position: absolute;
+    right: 0;
+    bottom: 100%;
+    padding-bottom: 2px;
+    font-size: var(--fs-micro);
+    line-height: 1.2;
+    font-weight: var(--w-medium);
+    color: var(--text-3);
+  }
+
+  /* The baseline the bars stand on: a ≥3:1 mark, so the soft income bars read. */
+  .cfc-base {
+    position: absolute;
+    z-index: 1;
+    left: 0;
+    right: 0;
+    top: calc(16px + var(--plot-h));
+    height: 1px;
+    background: var(--viz-strong);
+    pointer-events: none;
+  }
+
+  .cfc-col {
+    position: relative;
+    isolation: isolate;
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0 3px;
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    transition: opacity var(--dur-1) var(--ease-out);
+  }
+
+  /* Selection: a quiet column wash. */
+  .cfc-col::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--r-sm);
+    background: color-mix(in srgb, var(--text-1) 6%, transparent);
+    opacity: 0;
+    transition: opacity var(--dur-2) var(--ease-out);
+  }
+
+  .cfc-col.sel::before {
+    opacity: 1;
+  }
+
+  .cfc-bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    height: var(--plot-h);
+  }
+
+  .cfc-bar {
+    width: 44%;
+    max-width: 16px;
+    border-radius: var(--r-xs) var(--r-xs) 0 0;
+    transform-origin: bottom;
+    animation: cfcGrow var(--dur-4) var(--ease-out) backwards;
+    animation-delay: calc(var(--i, 0) * 35ms);
+  }
+
+  /* Bars grow the first time the pane is seen, never on re-show. */
+  [data-screen="insights"][data-seen] .cfc-bar {
+    animation: none;
+  }
+
+  @keyframes cfcGrow {
+    from {
+      transform: scaleY(0);
+    }
+  }
+
+  /* INCOME soft, SPENDING strong: the same mapping as every other chart. */
+  .cfc-bar.in {
+    background-color: var(--viz-soft);
+  }
+
+  .cfc-bar.out {
+    background-color: var(--viz-strong);
+  }
+
+  /* Out-spending income is the one state worth colouring. */
+  .cfc-bar.out.over {
+    background-color: var(--over-mark);
+  }
+
+  /* Hatched = the month's data cannot carry a comparison. */
+  .cfc-col.flagged .cfc-bar {
+    background-image: var(--hatch);
+  }
+
+  /* Two-line x-label: the month, then its net as a chart annotation. */
+  .cfc-x {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 0 6px;
+  }
+
+  .cfc-xmonth {
+    font-size: var(--fs-micro);
+    line-height: 1.2;
+    font-weight: var(--w-medium);
+    letter-spacing: 0.02em;
+    color: var(--text-3);
+  }
+
+  .cfc-col.sel .cfc-xmonth {
+    color: var(--text-1);
+    font-weight: var(--w-demi);
+  }
+
+  .cfc-xnet {
+    font-size: var(--fs-micro);
+    line-height: 1.2;
+    font-weight: var(--w-medium);
+    white-space: nowrap;
+  }
+
+  .cfc-xnet.dim {
+    opacity: 0.5;
+  }
+
+  .cfc-legend {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s-1) var(--s-4);
+    margin-top: var(--s-3);
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+  }
+
+  .cfc-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .cfc-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  /* The soft income swatch carries a ≥3:1 ring so it reads as a swatch. */
+  .cfc-dot.in {
+    background: var(--viz-soft);
+    box-shadow: inset 0 0 0 1px var(--viz-strong);
+  }
+
+  .cfc-dot.out {
+    background: var(--viz-strong);
+  }
+
+  .cfc-dot.hatch {
+    background-color: var(--viz-strong);
+    background-image: var(--hatch);
+  }
+
+  /* Readout: the month on screen, or the tapped one. */
+  .cfc-readout {
+    margin-top: var(--s-5);
+  }
+
+  .cfc-readout-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin-bottom: var(--s-3);
+  }
+
+  .cfc-readout-month {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--fs-title);
+    line-height: 1.1;
+    letter-spacing: -0.005em;
+    color: var(--text-1);
+    font-synthesis: none;
+  }
+
+  .cfc-flag {
+    padding: 2px 6px;
+    border-radius: var(--r-xs);
+    background: var(--fill);
+    font-size: var(--fs-micro);
+    line-height: 1.2;
+    font-weight: var(--w-demi);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+
+  /* Three fixed slots, so the third (a tapped month's net) never moves the first two. */
+  .cfc-cells {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--s-4);
+  }
+
+  .cfc-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .cfc-cell-label {
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+  }
+
+  .cfc-cell-fig {
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .cfc-none {
+    margin: 0;
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    color: var(--text-3);
+  }
+
+  /* Hover: pointer devices only (no sticky iOS hover). */
+  @media (hover: hover) and (pointer: fine) {
+    .cfc-col:hover {
+      opacity: 0.8;
+    }
+  }
+
+  .cfc-col:active {
+    opacity: 0.72;
+  }
+
+  @media (min-width: 920px) {
+    /* Single-column views stay a comfortable reading width, centered. */
+    .analysis {
+      width: 100%;
+      max-width: 660px;
+      margin-inline: auto;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    /* Two columns: the hero and its chart on the left, the rest on the right.
+       No sticky column. */
+    .analysis.an-grid {
+      max-width: none;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0 var(--s-8);
+      align-items: start;
+    }
+
+    .an-side > .sect:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .cfc-bar {
+      max-width: 20px;
+    }
+  }
+}

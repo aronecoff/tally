@@ -1,4 +1,8 @@
+import { useId, type CSSProperties } from 'react'
 import { money } from '../lib/format'
+import { NO_BUDGET } from '../lib/copy'
+import { Icon } from './Icon'
+import { Money } from './Money'
 
 export interface WheelSlice {
   key: string
@@ -6,45 +10,42 @@ export interface WheelSlice {
   spent: number
   limit: number
   state: 'ok' | 'near' | 'pace' | 'over' | 'none'
+  /** Transactions filed under this category this month. */
+  count: number
 }
 
 interface Props {
+  /** Largest first; slices with no spend are skipped. */
   slices: WheelSlice[]
   totalLimit: number
   totalSpent: number
   selected: string | null
   onSelect: (key: string | null) => void
+  /** Scroll to the selected category's row. */
+  onGo?: (key: string) => void
 }
 
 const CX = 110
 const CY = 110
 const R_OUT = 100
 const R_IN = 70 // a thinner ring reads more refined than a fat one
-const GAP = 0.018
 
 /**
- * Category colours, tuned to the app's earth palette. The colours seeded in the
- * DB are bright Tailwind defaults (#4ade80, #fb7185 …) that clash badly here and
- * were never actually rendered anywhere, so the wheel keys off the category NAME
- * instead and stays consistent with the rest of the UI.
+ * Category colours: the approved earth palette, as themable tokens
+ * (--cat-*, tokens.css, with light-mode variants). The colours seeded in the DB
+ * are bright defaults that were never rendered, so the wheel keys off the
+ * category NAME. Applied through style (var() is not reliable in SVG
+ * presentation attributes in WebKit).
  */
-const CAT_COLORS: Record<string, string> = {
-  rent: '#6F91A3',
-  groceries: '#6E8060',
-  dining: '#C98A7E',
-  transport: '#C9A86B',
-  subscriptions: '#8C7FA8',
-  health: '#B9808F',
-  shopping: '#8FA083',
-  fun: '#B08E5E',
-  other: '#8A867E',
-  uncategorized: '#8A867E',
-}
-const PALETTE = ['#6F91A3', '#6E8060', '#C98A7E', '#C9A86B', '#8C7FA8', '#B9808F', '#8FA083', '#B08E5E', '#8A867E']
+const CAT_KEYS = new Set(['rent', 'groceries', 'shopping', 'transport', 'dining', 'subscriptions', 'health', 'fun', 'other'])
+/** Hashed fallback for custom categories: the same palette minus Other's grey. */
+const PALETTE = ['rent', 'groceries', 'dining', 'transport', 'subscriptions', 'health', 'shopping', 'fun'].map(
+  (k) => `var(--cat-${k})`,
+)
 
 function colorFor(name: string): string {
   const k = name.trim().toLowerCase()
-  if (CAT_COLORS[k]) return CAT_COLORS[k]
+  if (CAT_KEYS.has(k)) return `var(--cat-${k})`
   let h = 0
   for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0
   return PALETTE[h % PALETTE.length]
@@ -62,80 +63,131 @@ function sector(rIn: number, rOut: number, a0: number, a1: number): string {
 }
 
 /**
- * Budget wheel — a uniform-thickness donut of where the money actually went.
- * Angle = that category's share of this month's spending; one colour per
- * category so slices are tellable apart. Over-budget categories are flagged in
- * the legend rather than by recolouring the slice, so category identity stays
- * readable.
+ * Budget wheel: a uniform-thickness donut of where the money actually went.
+ * Angle = that category's share of this month's spending, largest first; one
+ * colour per category so slices are tellable apart, and Uncategorized is
+ * hatched (unsorted money looks unsorted). A category's state shows in the
+ * legend amount and the centre, never by recolouring its slice. The ring is
+ * decorative for assistive tech; the legend buttons are the controls.
  */
-export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect }: Props) {
+export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect, onGo }: Props) {
+  const hatchId = `wheel-hatch-${useId().replace(/[^\w-]/g, '')}`
   const spentSlices = slices.filter((s) => s.spent > 0)
   const total = spentSlices.reduce((n, s) => n + s.spent, 0)
   if (total <= 0) return null
 
   const left = totalLimit - totalSpent
   const sel = spentSlices.find((s) => s.key === selected) ?? null
+  // Only a slice with spend can be the selection: opening an unspent category
+  // in the list must not dim the whole ring.
+  const activeKey = sel?.key ?? null
 
+  const arcs: (WheelSlice & { a0: number; a1: number; color: string; hatch: boolean })[] = []
   let cursor = 0
-  const arcs = spentSlices.map((s) => {
+  for (const s of spentSlices) {
     const a0 = cursor
-    const a1 = cursor + (s.spent / total) * Math.PI * 2
-    cursor = a1
-    return { ...s, a0, a1, color: colorFor(s.name), pct: (s.spent / total) * 100 }
-  })
+    cursor += (s.spent / total) * Math.PI * 2
+    arcs.push({ ...s, a0, a1: cursor, color: colorFor(s.name), hatch: s.key === 'uncat' })
+  }
+
+  const toggle = (key: string) => onSelect(selected === key ? null : key)
+  const dot = (a: { color: string; hatch: boolean }, className: string) =>
+    a.hatch ? <i className={`${className} is-hatch`} /> : <i className={className} style={{ background: a.color }} />
+
+  const selArc = arcs.find((a) => a.key === activeKey) ?? null
+  const selTone = sel ? (sel.state === 'over' ? 'over' : sel.state === 'pace' || sel.state === 'near' ? 'near' : '') : ''
+  const selSub = sel
+    ? sel.state === 'over'
+      ? `${money(sel.spent - sel.limit)} over`
+      : sel.state === 'pace'
+        ? 'Likely to go over'
+        : sel.limit > 0
+          ? `of ${money(sel.limit, { trim: true })}`
+          : NO_BUDGET
+    : ''
 
   return (
     <>
       <div className="wheel-wrap">
-        <svg className="wheel" viewBox="0 0 220 220" role="img" aria-label="Spending by category">
+        <svg className="wheel" viewBox="0 0 220 220" aria-hidden="true">
+          <defs>
+            <pattern id={hatchId} width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <rect width="4" height="4" style={{ fill: 'var(--cat-other)', fillOpacity: 0.3 }} />
+              <rect width="1.6" height="4" style={{ fill: 'var(--cat-other)' }} />
+            </pattern>
+          </defs>
+          {/* The hole clears the selection. */}
+          <circle className="wheel-hole" cx={CX} cy={CY} r={R_IN} fill="transparent" onClick={() => onSelect(null)} />
           {arcs.map((a) => {
-            const a0 = a.a0 + GAP / 2
-            const a1 = Math.max(a0 + 0.004, a.a1 - GAP / 2)
+            // Uniform gaps come from the background-coloured stroke, not from
+            // angular gaps (which taper toward the hub).
+            const a0 = a.a0
+            const a1 = Math.min(Math.max(a0 + 0.004, a.a1), a0 + Math.PI * 2 - 1e-4)
             return (
               <path
                 key={a.key}
-                className={`wheel-slice ${selected === a.key ? 'sel' : ''} ${selected && selected !== a.key ? 'dim' : ''}`}
+                className={`wheel-slice${activeKey === a.key ? ' sel' : ''}${activeKey && activeKey !== a.key ? ' dim' : ''}`}
                 d={sector(R_IN, R_OUT, a0, a1)}
-                fill={a.color}
-                onClick={() => onSelect(selected === a.key ? null : a.key)}
+                {...(a.hatch ? { fill: `url(#${hatchId})` } : { style: { fill: a.color } })}
+                onClick={() => toggle(a.key)}
               />
             )
           })}
         </svg>
 
-        <div className="wheel-center">
-          {sel ? (
+        <div className="wheel-center" key={activeKey ?? 'all'}>
+          {sel && selArc ? (
             <>
-              <span className="wheel-center-label">{sel.name}</span>
-              <strong className="wheel-center-num num">{money(sel.spent, { approx: true })}</strong>
-              <span className="wheel-center-sub num">
-                {sel.limit > 0 ? `of ${money(sel.limit, { approx: true })}` : 'no budget'}
+              <span className="wheel-center-label">
+                {dot(selArc, 'wheel-center-dot')}
+                {sel.name}
               </span>
+              <Money className="wheel-center-num" value={sel.spent} />
+              <span className={`wheel-center-sub num${selTone ? ` ${selTone}` : ''}`}>{selSub}</span>
+            </>
+          ) : totalLimit > 0 ? (
+            <>
+              <span className="wheel-center-label">{left >= 0 ? 'Left' : 'Over budget'}</span>
+              <Money className={`wheel-center-num${left < 0 ? ' over' : ''}`} value={Math.abs(left)} />
+              <span className="wheel-center-sub num">of {money(totalLimit, { trim: true })}</span>
             </>
           ) : (
             <>
-              <span className="wheel-center-label">{left >= 0 ? 'Left to spend' : 'Over budget'}</span>
-              <strong className={`wheel-center-num num ${left < 0 ? 'over' : ''}`}>
-                {money(Math.abs(left), { approx: true })}
-              </strong>
-              <span className="wheel-center-sub num">of {money(totalLimit, { approx: true })}</span>
+              <span className="wheel-center-label">Spent</span>
+              <Money className="wheel-center-num" value={totalSpent} />
             </>
           )}
         </div>
       </div>
 
-      <ul className="wheel-key">
+      {/* Reserved slot: the legend never moves when a slice is picked. */}
+      <div className="wheel-go-slot">
+        {sel && onGo && (
+          <button type="button" className="wheel-go" key={sel.key} onClick={() => onGo(sel.key)}>
+            {sel.count} {sel.count === 1 ? 'transaction' : 'transactions'} in {sel.name}
+            <Icon name="chevron" size={12} />
+          </button>
+        )}
+      </div>
+
+      <ul
+        className={`wheel-key${activeKey ? ' has-sel' : ''}`}
+        style={{ '--rows': Math.ceil(arcs.length / 2) } as CSSProperties}
+      >
         {arcs.map((a) => (
-          <li
-            key={a.key}
-            className={`wheel-key-row ${selected === a.key ? 'sel' : ''}`}
-            onClick={() => onSelect(selected === a.key ? null : a.key)}
-          >
-            <i className="wheel-key-dot" style={{ background: a.color }} />
-            <span className="wheel-key-name">{a.name}</span>
-            <span className={`wheel-key-amt num ${a.state === 'over' ? 'over' : ''}`}>
-              {money(a.spent, { approx: true })}
-            </span>
+          <li key={a.key}>
+            <button
+              type="button"
+              className={`wheel-key-row${activeKey === a.key ? ' sel' : ''}`}
+              aria-pressed={activeKey === a.key}
+              onClick={() => toggle(a.key)}
+            >
+              {dot(a, 'wheel-key-dot')}
+              <span className="wheel-key-name">{a.name}</span>
+              <span className={`wheel-key-amt num${a.state === 'over' ? ' over' : ''}`}>
+                {money(a.spent, { approx: true })}
+              </span>
+            </button>
           </li>
         ))}
       </ul>

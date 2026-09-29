@@ -1,4 +1,4 @@
-import { PATHS } from './iconPaths'
+import { PATHS, UI_PATHS } from './iconPaths'
 
 interface Props {
   name: string
@@ -7,7 +7,9 @@ interface Props {
 }
 
 export function Icon({ name, size = 20, className }: Props) {
-  const d = PATHS[name] ?? PATHS.tag
+  const d = PATHS[name] ?? UI_PATHS[name] ?? PATHS.tag
+  // Optically sized stroke: about 1.35px on screen at every size (clamped).
+  const sw = Math.max(1.5, Math.min(2.2, 32.4 / size))
   return (
     <svg
       className={className}
@@ -16,14 +18,12 @@ export function Icon({ name, size = 20, className }: Props) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth={sw}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {d.split(' M').map((seg, i) => (
-        <path key={i} d={i === 0 ? seg : `M${seg}`} />
-      ))}
+      <path d={d} />
     </svg>
   )
 }

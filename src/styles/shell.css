@@ -1,0 +1,602 @@
+/* Shell: .app, the 44pt header (brand, month switch, page title, back,
+   header buttons and status dot), the keep-alive panes, the tab bar, the
+   desktop sidebar, and the reconnect + install banners.
+   @layer shell. Owner: S1B. */
+
+@layer shell {
+  .app {
+    position: relative;
+    max-width: var(--app-max);
+    margin: 0 auto;
+    /* Bounded height: each pane is its own scroller, the chrome stays put. */
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  /* ---- Header: 44pt at the canvas colour, says where you are ------------- */
+  .app-head {
+    position: relative;
+    flex: none;
+    height: calc(var(--head-h) + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left));
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    /* The canvas itself: nothing scrolls under the header (each pane scrolls
+       below it), so it stays transparent and the grain and top light run
+       unbroken to the status bar instead of stopping at a flat band. */
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    z-index: var(--z-chrome);
+    transition: box-shadow var(--dur-1) linear;
+  }
+
+  /* A hairline appears once the pane below has scrolled. */
+  .app-head.scrolled {
+    box-shadow: inset 0 calc(-1 * var(--hairline-w)) 0 var(--hairline);
+  }
+
+  .head-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    font-size: var(--fs-headline);
+    font-weight: var(--w-demi);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    color: var(--text-1);
+  }
+
+  .head-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin: 0;
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  .head-glyph {
+    flex: none;
+    color: var(--text-1);
+  }
+
+  .head-glyph-slash {
+    stroke: var(--accent);
+  }
+
+  .page-title {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font: inherit;
+    letter-spacing: inherit;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .head-center {
+    position: absolute;
+    top: env(safe-area-inset-top);
+    left: 50%;
+    height: var(--head-h);
+    display: flex;
+    align-items: center;
+    margin: 0;
+    transform: translateX(-50%);
+    font: inherit;
+    letter-spacing: inherit;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* Categories: '‹ Budget', always true (back or a jump to Budget). */
+  .head-back {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 44px;
+    margin-left: -8px;
+    padding: 0 var(--s-2) 0 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-size: var(--fs-headline);
+    font-weight: var(--w-medium);
+    letter-spacing: -0.01em;
+    transition: opacity var(--dur-2) var(--ease-out);
+  }
+
+  .head-back:active {
+    opacity: 0.6;
+    transition-duration: var(--dur-press);
+  }
+
+  .head-right {
+    flex: none;
+    display: flex;
+    margin-right: -4px;
+  }
+
+  .head-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-md);
+    background: none;
+    color: var(--text-2);
+    transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+  }
+
+  .head-btn:active {
+    color: var(--text-1);
+    background: var(--fill-press);
+    transition-duration: var(--dur-press);
+  }
+
+  /* Sync status: only when it means something. 6px with a canvas knockout. */
+  .head-dot {
+    position: absolute;
+    top: 11px;
+    right: 10px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-2);
+    box-shadow: 0 0 0 2px var(--bg);
+  }
+
+  .head-dot.is-error {
+    background: var(--over-mark);
+  }
+
+  .head-dot.is-signedout {
+    background: var(--near-mark);
+  }
+
+  @keyframes dotPulse {
+    to {
+      opacity: 0.35;
+    }
+  }
+
+  /* ---- Month switch: the title on Budget, Insights and Activity ---------- */
+  .month-switch {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    margin-left: -12px;
+  }
+
+  .ms-step {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--text-2);
+    transition: color var(--dur-1) var(--ease-out), opacity var(--dur-1) var(--ease-out);
+  }
+
+  .ms-step:active:not(:disabled) {
+    color: var(--text-1);
+  }
+
+  .ms-step:disabled {
+    opacity: 0.25;
+    cursor: default;
+  }
+
+  .ms-label {
+    min-width: 6.5em;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: var(--w-demi) var(--fs-headline) / 1 var(--font-ui);
+    letter-spacing: -0.01em;
+    color: var(--text-1);
+    white-space: nowrap;
+  }
+
+  .ms-today {
+    height: 44px;
+    padding: 0 var(--s-2);
+    border: 0;
+    background: none;
+    font: var(--w-demi) var(--fs-meta) / 1 var(--font-ui);
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .flip {
+    transform: scaleX(-1);
+  }
+
+  /* ---- Keep-alive panes: one scroller per screen ------------------------- */
+  .app-body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .pane {
+    position: absolute;
+    inset: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    /* contain: no page bounce or pull-to-refresh; pan-y: smooth vertical scroll. */
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    padding: var(--s-4) var(--gutter) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s-6));
+    scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 12px);
+  }
+
+  .pane[hidden] {
+    display: none;
+  }
+
+  /* Tab switch: a short crossfade, never a replayed cascade. */
+  .pane:not([hidden]) {
+    animation: viewIn var(--dur-2) var(--ease-out) backwards;
+  }
+
+  /* Categories is pushed from Budget. */
+  .pane[data-screen='categories']:not([hidden]) {
+    animation: pushIn var(--dur-3) var(--ease-out) backwards;
+  }
+
+  /* Legacy entrances play once per pane: the .dash-col > * cardIn cascade
+     (Accounts; Home and Budget sections carry .enter, which it still
+     outranks) and the bare .txn-row rowIn (Home's Today rows). Delete this
+     with cardIn and rowIn once those screens use .enter. */
+  .pane[data-seen] .dash-col > *,
+  .pane[data-seen] .txn-row {
+    animation: none;
+  }
+
+  @keyframes viewIn {
+    from {
+      opacity: 0.35;
+    }
+  }
+
+  @keyframes pushIn {
+    from {
+      transform: translateX(20px);
+    }
+  }
+
+  /* ---- Tab bar: the only blurred surface --------------------------------- */
+  .tabbar {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: var(--app-max);
+    display: grid;
+    /* One equal column per tab, however many there are. */
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    padding-bottom: max(env(safe-area-inset-bottom), 4px);
+    z-index: var(--z-tabbar);
+    background: var(--chrome);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    border: 0;
+    box-shadow: inset 0 var(--hairline-w) 0 var(--hairline);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .tabbar {
+      background: var(--bg);
+    }
+  }
+
+  .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 50px;
+    padding: 7px 2px 5px;
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .tab .tab-label {
+    font-size: var(--fs-tab);
+    font-weight: var(--w-medium);
+    line-height: 1;
+    letter-spacing: 0.01em;
+  }
+
+  .tab svg {
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+
+  .tab:active svg {
+    transform: scale(0.94);
+    transition-duration: var(--dur-press);
+  }
+
+  .tab-on {
+    color: var(--accent);
+  }
+
+  .tab-on .tab-label {
+    font-weight: var(--w-demi);
+  }
+
+  /* ---- Reconnect banner: a quiet near-tint row with one action ----------- */
+  .reconnect-banner {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: var(--hit);
+    margin: var(--s-1) var(--gutter) 0;
+    padding: 0 var(--s-3);
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--near-tint);
+    color: var(--near);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-medium);
+    text-align: left;
+    transition: opacity var(--dur-2) var(--ease-out);
+  }
+
+  .reconnect-banner:active {
+    opacity: 0.7;
+    transition-duration: var(--dur-press);
+  }
+
+  .reconnect-copy {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .reconnect-cta {
+    flex: none;
+    color: var(--accent);
+    font-weight: var(--w-demi);
+  }
+
+  /* ---- Install hint: top of the Home pane --------------------------------- */
+  .install-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    margin: 0 0 var(--s-4);
+    padding: 0 0 0 var(--group-pad);
+    border: 0;
+    border-radius: var(--r-md);
+    /* Dissolved like every in-flow group (the gate's tint variant fills it). */
+    background: var(--group-bg);
+    box-shadow: none;
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    color: var(--text-2);
+  }
+
+  .install-copy {
+    padding: var(--s-3) 0;
+    text-wrap: pretty;
+  }
+
+  .install-glyph {
+    display: inline-block;
+    vertical-align: -2px;
+    color: var(--accent);
+  }
+
+  .install-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--s-1);
+  }
+
+  .install-btn {
+    height: 32px;
+    padding: 0 var(--s-3);
+    border: none;
+    border-radius: var(--r-sm);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-demi);
+  }
+
+  .install-x {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text-3);
+    transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+  }
+
+  .install-x:active {
+    color: var(--text-1);
+    background: var(--fill-press);
+  }
+
+  /* ---- Sidebar (desktop) ------------------------------------------------- */
+  .side-tab {
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .head-dot.is-syncing {
+      animation: dotPulse 0.9s var(--ease-out) infinite alternate;
+    }
+  }
+
+  @media (max-width: 359px) {
+    .ms-today {
+      display: none;
+    }
+  }
+
+  /* Hover: pointer devices only (no sticky iOS hover). */
+  @media (hover: hover) and (pointer: fine) {
+    .head-btn:hover,
+    .ms-step:hover:not(:disabled) {
+      color: var(--text-1);
+    }
+    .ms-label:hover,
+    .ms-today:hover {
+      opacity: 0.8;
+    }
+    .install-x:hover {
+      background: var(--fill-press);
+      color: var(--text-1);
+    }
+    .side-tab:hover {
+      background: var(--fill-press);
+      color: var(--text-1);
+    }
+    .side-add:hover {
+      background: var(--fill-press);
+    }
+  }
+
+  @media (min-width: 920px) {
+    .app {
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+      max-width: 1180px;
+      height: 100vh;
+      gap: 0;
+      border-left: var(--hairline-w) solid var(--hairline);
+      border-right: var(--hairline-w) solid var(--hairline);
+      box-shadow: none;
+    }
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 22px 16px;
+      gap: 8px;
+      background: var(--bg);
+      border: 0;
+      border-right: var(--hairline-w) solid var(--hairline);
+    }
+    .side-brand {
+      display: flex;
+      align-items: center;
+      gap: var(--s-2);
+      padding: 6px 10px 18px;
+      font-size: var(--fs-headline);
+      font-weight: var(--w-demi);
+      letter-spacing: -0.01em;
+    }
+    .side-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .side-tab {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: var(--hit);
+      padding: 0 12px;
+      border: none;
+      border-radius: var(--r-md);
+      background: transparent;
+      color: var(--text-2);
+      font-size: var(--fs-row);
+      font-weight: var(--w-medium);
+      text-align: left;
+    }
+    .side-tab .tab-label {
+      font-size: var(--fs-row);
+    }
+    .side-tab-on {
+      background: var(--fill-press);
+      color: var(--text-1);
+    }
+    .side-foot {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .side-add {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--s-2);
+      height: var(--ctl-lg);
+      margin-bottom: var(--s-2);
+      padding: 0 var(--s-4);
+      border: 0;
+      border-radius: var(--r-md);
+      background: var(--fill);
+      color: var(--text-1);
+      font-size: var(--fs-row);
+      font-weight: var(--w-medium);
+      transition: background-color var(--dur-1) var(--ease-out);
+    }
+    .side-settings .head-dot {
+      top: 50%;
+      right: 14px;
+      margin-top: -3px;
+    }
+    .app-head {
+      height: 56px;
+      padding: 0 28px;
+    }
+    .head-right,
+    .head-back,
+    .tabbar {
+      display: none;
+    }
+    .head-center {
+      position: static;
+      height: auto;
+      transform: none;
+    }
+    .pane {
+      padding: 24px 30px 40px;
+    }
+  }
+}

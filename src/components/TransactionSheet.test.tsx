@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Regression guard for a ledger-affecting rule:
+ * Regression guards for the transaction sheet's ledger-affecting rules.
  *
  *   Toggling Expense <-> Income must NEVER destroy the picked category.
  *
@@ -11,13 +11,18 @@
  * totals. The category's validity for the current kind is a VIEW concern
  * (derive it), not a reason to throw the user's choice away.
  *
- * This is a component test on purpose: a unit test of the derivation helper
- * would still pass if someone re-added a clearing setState, which is exactly
- * the regression worth catching.
+ * Also: Delete works without window.confirm (a silent no-op in the iOS
+ * wrapper) and needs two taps; picking a chip or a type writes nothing until
+ * Save; Enter submits once through the form (never through a stray default
+ * button); a failed save keeps the sheet and its values.
+ *
+ * These are component tests on purpose: a unit test of a helper would still
+ * pass if someone re-added a clearing setState, which is exactly the
+ * regression worth catching.
  */
 import 'fake-indexeddb/auto'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TransactionSheet } from './TransactionSheet'
 import { db, type Category, type Transaction } from '../db/db'
 
@@ -39,6 +44,18 @@ const TXN: Transaction = {
   updatedAt: 0,
 }
 
+const PAY: Transaction = {
+  id: 43,
+  date: '2026-07-15',
+  amount: 2875,
+  type: 'income',
+  categoryId: 7, // Salary
+  account: 'Citizens Checking',
+  note: 'ACME CORP PAYROLL',
+  createdAt: 0,
+  updatedAt: 0,
+}
+
 /** Which category chip is highlighted, by label. */
 const selectedChip = () =>
   screen
@@ -49,14 +66,55 @@ const selectedChip = () =>
 const seg = (label: string) =>
   screen.getAllByRole('button').find((b) => b.textContent?.trim() === label)!
 
+const amountInput = () => screen.getByLabelText('Amount') as HTMLInputElement
+
+/**
+ * What a browser does on Enter in a text field: the keydown, then implicit
+ * submission, which clicks the form's default button (its FIRST submit button
+ * in tree order, wherever it sits) when that button is enabled. A button left
+ * without type="button" would become that default button.
+ */
+function pressEnter(el: HTMLInputElement) {
+  fireEvent.keyDown(el, { key: 'Enter', code: 'Enter' })
+  const form = el.form
+  if (!form) throw new Error('the field is not inside a form')
+  const submit = Array.from(form.elements).find((x) => (x as HTMLButtonElement).type === 'submit') as
+    | HTMLButtonElement
+    | undefined
+  if (submit && !submit.disabled) submit.click()
+}
+
+const flush = () => act(() => new Promise((r) => setTimeout(r, 30)))
+
+// The sheet closes through its exit animation unless Reduce Motion is on.
+// Stub matchMedia to 'reduce' so onClose runs synchronously, as it does on a
+// device with Reduce Motion (and in any runtime without matchMedia).
+beforeEach(() => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: /prefers-reduced-motion:\s*reduce/.test(query),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    })),
+  )
+})
+
 beforeEach(async () => {
   await db.open()
   await db.transactions.clear()
-  await db.transactions.add(TXN)
+  await db.transactions.bulkAdd([TXN, PAY])
 })
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('TransactionSheet — expense/income toggle', () => {
@@ -83,7 +141,7 @@ describe('TransactionSheet — expense/income toggle', () => {
 
     fireEvent.click(seg('Income'))
     fireEvent.click(seg('Expense'))
-    fireEvent.click(screen.getByText('Save changes'))
+    fireEvent.click(screen.getByText('Save'))
 
     // What is written must match what was highlighted — no silent null.
     await waitFor(async () => {
@@ -100,12 +158,163 @@ describe('TransactionSheet — expense/income toggle', () => {
     // Switching kind and saving must not carry an expense category onto income.
     fireEvent.click(seg('Income'))
     expect(selectedChip()).toEqual([])
-    fireEvent.click(screen.getByText('Save changes'))
+    fireEvent.click(screen.getByText('Save'))
 
     await waitFor(async () => {
       const saved = await db.transactions.get(42)
       expect(saved?.type).toBe('income')
       expect(saved?.categoryId).toBeNull()
     })
+  })
+})
+
+describe('TransactionSheet — amount', () => {
+  it('shows the stored amount with two decimals and saves the same value', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+    expect(amountInput().value).toBe('74.30')
+
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect((await db.transactions.get(42))?.amount).toBe(74.3)
+  })
+
+  it('does not focus a field when an existing transaction opens', () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={() => {}} />)
+    expect(document.activeElement?.matches('input, textarea, select')).toBe(false)
+  })
+})
+
+describe('TransactionSheet — delete', () => {
+  it('needs two taps and never calls window.confirm', async () => {
+    const confirmSpy = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirmSpy)
+    let t = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => t)
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+
+    // First tap arms: the in-sheet confirm shows and nothing is written.
+    fireEvent.click(screen.getByTestId('txn-delete'))
+    expect(screen.getByText('Delete this transaction? It stays deleted after the next bank sync.')).toBeTruthy()
+    await flush()
+    expect((await db.transactions.get(42))?.deleted).toBeFalsy()
+
+    // A second tap that lands inside the double-tap window is ignored.
+    t += 100
+    fireEvent.click(screen.getByText('Delete transaction'))
+    await flush()
+    expect((await db.transactions.get(42))?.deleted).toBeFalsy()
+
+    // The confirming tap runs the unchanged delete: tombstone + manual pin.
+    t += 1000
+    fireEvent.click(screen.getByText('Delete transaction'))
+    await waitFor(async () => {
+      const row = await db.transactions.get(42)
+      expect(row?.deleted).toBe(true)
+      expect(row?.manual).toBe(true)
+    })
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it('Cancel disarms without writing', async () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('txn-delete'))
+    fireEvent.click(screen.getByText('Cancel'))
+    expect(screen.queryByText('Delete transaction')).toBeNull()
+    expect(screen.getByTestId('txn-delete')).toBeTruthy()
+    await flush()
+    expect((await db.transactions.get(42))?.deleted).toBeFalsy()
+  })
+})
+
+describe('TransactionSheet — nothing is written until Save', () => {
+  it('clicking a chip or a type option writes nothing to the DB', async () => {
+    const before = await db.transactions.toArray()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={() => {}} />)
+    await waitFor(() => expect(selectedChip()).toEqual(['Groceries']))
+
+    fireEvent.click(screen.getByText('Dining'))
+    expect(selectedChip()).toEqual(['Dining'])
+    fireEvent.click(seg('Income'))
+    fireEvent.click(seg('Expense'))
+    await flush()
+
+    expect(await db.transactions.toArray()).toEqual(before)
+  })
+
+  it('every button except the primary is type="button"', () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={() => {}} />)
+    fireEvent.click(screen.getByTestId('txn-delete')) // show the confirm buttons too
+    const submits = screen.getAllByRole('button').filter((b) => (b as HTMLButtonElement).type === 'submit')
+    expect(submits.map((b) => b.textContent)).toEqual(['Save'])
+  })
+})
+
+describe('TransactionSheet — Enter', () => {
+  it('Enter on a NEW transaction creates exactly one row', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={null} onClose={onClose} />)
+    fireEvent.change(amountInput(), { target: { value: '12.50' } })
+
+    // Twice in quick succession: the in-flight guard lets one through.
+    pressEnter(amountInput())
+    pressEnter(amountInput())
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    await flush()
+
+    const added = (await db.transactions.toArray()).filter((t) => t.id !== 42 && t.id !== 43)
+    expect(added).toHaveLength(1)
+    expect(added[0]).toMatchObject({ amount: 12.5, type: 'expense', manual: true })
+  })
+
+  it('Enter on an income row keeps type income', async () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={PAY} onClose={() => {}} />)
+    await waitFor(() => expect(selectedChip()).toEqual(['Salary']))
+
+    pressEnter(amountInput())
+    await waitFor(async () => {
+      const saved = await db.transactions.get(43)
+      expect(saved?.manual).toBe(true)
+      expect(saved?.type).toBe('income')
+      expect(saved?.categoryId).toBe(7)
+      expect(saved?.amount).toBe(2875)
+    })
+    // No stray default button was clicked on the way: the type shown is still Income.
+    expect(seg('Income').getAttribute('aria-pressed')).toBe('true')
+    expect(selectedChip()).toEqual(['Salary'])
+  })
+})
+
+describe('TransactionSheet — save outcome', () => {
+  it('a successful Save calls onClose', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+    fireEvent.change(amountInput(), { target: { value: '80' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect((await db.transactions.get(42))?.amount).toBe(80)
+  })
+
+  it('a failed save keeps the sheet open with its values', async () => {
+    vi.spyOn(db.transactions, 'update').mockRejectedValueOnce(new Error('QuotaExceededError'))
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+    fireEvent.change(amountInput(), { target: { value: '55.20' } })
+    fireEvent.click(screen.getByText('Dining'))
+    fireEvent.click(screen.getByText('Save'))
+
+    expect(await screen.findByText('Could not save. Try again.')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(amountInput().value).toBe('55.20')
+    expect(selectedChip()).toEqual(['Dining'])
+    expect((await db.transactions.get(42))?.amount).toBe(74.3)
+
+    // The guard is released on failure: a retry goes through.
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect((await db.transactions.get(42))?.amount).toBe(55.2)
   })
 })

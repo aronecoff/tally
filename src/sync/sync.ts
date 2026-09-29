@@ -287,6 +287,14 @@ function schedule() {
 let started = false
 
 export function initSync(): void {
+  // DEV-only QA hook: ?__fakeSession=1 presents a signed-in, recently synced
+  // session (no network) so the harness can capture the signed-in Settings
+  // sheet. import.meta.env.DEV is false in production builds, so this whole
+  // block is dropped from dist.
+  if (import.meta.env.DEV && new URLSearchParams(location.search).get('__fakeSession') === '1') {
+    emit({ email: 'you@example.com', status: 'synced', lastSyncedAt: Date.now() - 4 * 60 * 1000, error: null })
+    return
+  }
   if (!supabase || started) return
   started = true
 

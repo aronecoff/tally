@@ -21,13 +21,27 @@ export default defineConfig({
         clientsClaim: true,
         skipWaiting: true,
         cleanupOutdatedCaches: true,
+        // The display serif (Instrument Serif) comes from Google Fonts. Cache the
+        // stylesheet and the font files so offline launches keep the hero figures.
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'fonts',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
       manifest: {
         name: 'Tally — Personal Finance',
         short_name: 'Tally',
         description: 'Track spending and stay inside your limits, offline-first.',
-        theme_color: '#0a0a0b',
-        background_color: '#0a0a0b',
+        // The approved canvas (#09090B), same as index.html and tokens.css --bg.
+        theme_color: '#09090B',
+        background_color: '#09090B',
         display: 'standalone',
         start_url: base,
         scope: base,

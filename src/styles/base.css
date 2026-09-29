@@ -1,0 +1,156 @@
+/* Base: reset, the locked html/body, paper grain, text utilities (.num,
+   .pos, .over, .near, .muted), .empty, b/strong/h weights, the iOS
+   WebKit fixes, the focus ring, and the one sanctioned !important block
+   (prefers-reduced-motion, including the sheet dissolve).
+   @layer base. Owner: S1A. */
+
+@layer base {
+  #root,
+  body,
+  html {
+    height: 100%;
+    margin: 0;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  b,
+  strong {
+    font-weight: var(--w-demi);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  th {
+    font-weight: inherit;
+  }
+
+  /* Figures: tabular, untracked. Only display roles carry negative tracking. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  .pos {
+    color: var(--ok);
+  }
+
+  .over {
+    color: var(--over);
+  }
+
+  .near {
+    color: var(--near);
+  }
+
+  .muted {
+    color: var(--text-3);
+  }
+
+  .empty {
+    text-align: center;
+    color: var(--text-3);
+    padding: 52px 24px;
+    font-size: var(--fs-row);
+    line-height: 1.45;
+    text-wrap: pretty;
+  }
+
+  /* Paper grain over the ink canvas: the texture that separates "printed" from
+     "flat dark UI". Baked into the background stack so it can never sit above
+     sheets or intercept taps. */
+  body {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    color: var(--text-1);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    transition: background-color var(--dur-3) var(--ease-out);
+    background: var(--grain) repeat, var(--mesh), var(--bg);
+  }
+
+  html {
+    background: var(--bg);
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /* Kill the grey flash box iOS paints over every tap target. */
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Long-press on chrome, controls, rows and charts must not raise the text
+     loupe or the 'Save Image' callout in WKWebView. Inputs stay selectable.
+     :where() keeps these at zero specificity (and out of class ownership). */
+  :where(button, a, [role='button'], .app-head, .tabbar, .sidebar, .chip, .txn-row, .acct-row, .traj-row, .bill-row,
+    .bud-cat-head, .bud-txn, .cat-summary, .an-row, .row-press, .wheel-wrap, .wheel-key, .cfc, .nwmap, .daily) {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  :where(input, textarea, select, [contenteditable]) {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+
+  /* One brand focus ring for keyboard users. */
+  :where(button, a, [role='button'], [tabindex='0']):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Reduce Motion: everything collapses to a short dissolve. The sheet keeps a
+     200ms fade: its rule has the same (zero) specificity as * and comes later
+     in this layer, so it wins. :where() keeps .sheet's ownership in sheet.css.
+     The ONLY !important in the app. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0s !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    :where(.sheet) {
+      animation: fadeIn 0.2s ease both !important;
+    }
+    :where(.sheet.is-closing) {
+      animation-name: fadeOut !important;
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fadeOut {
+    to {
+      opacity: 0;
+    }
+  }
+}

@@ -1,5 +1,49 @@
 import { describe, expect, it } from 'vitest'
-import { cleanMerchant, merchantInfo } from './merchants'
+import { accountLabel, cleanMerchant, merchantInfo, splitMask } from './merchants'
+
+describe('splitMask', () => {
+  it('splits a trailing (dddd) mask off', () => {
+    expect(splitMask('Citizens Bank Checking Account (4821)')).toEqual({
+      base: 'Citizens Bank Checking Account',
+      last4: '4821',
+    })
+  })
+
+  it('leaves strings without a mask alone', () => {
+    expect(splitMask('Amex')).toEqual({ base: 'Amex', last4: null })
+    expect(splitMask('')).toEqual({ base: '', last4: null })
+    expect(splitMask('Schwab 401(k)')).toEqual({ base: 'Schwab 401(k)', last4: null })
+  })
+})
+
+// Account strings in the shape the bank feed sends them (the masks are made
+// up). DISPLAY ONLY: the stored string is never rewritten.
+describe('accountLabel', () => {
+  const cases: [string, string, string | null][] = [
+    ['Citizens Bank Money Market Account (4837)', 'Citizens Money Market', '4837'],
+    ['Chase Bank Chase Freedom Unlimited (7418)', 'Chase Freedom Unlimited', '7418'],
+    ['Citizens Bank Checking Account (4821)', 'Citizens Checking', '4821'],
+    ['American Express American Express Green Card (6152)', 'Amex Green', '6152'],
+    ['Chase Bank United Explorer Rewards Visa Signature (7264)', 'Chase United Explorer', '7264'],
+    ['American Express Personal Savings High Yield Account (2395)', 'Amex Personal Savings', '2395'],
+    ['Amex', 'Amex', null],
+    ['', '', null],
+  ]
+
+  for (const [raw, label, mask] of cases) {
+    it(`${JSON.stringify(raw)} → ${JSON.stringify(label)}`, () => {
+      expect(accountLabel(raw)).toEqual({ label, mask })
+    })
+  }
+
+  it('maps Charles Schwab to Schwab', () => {
+    expect(accountLabel('Charles Schwab Brokerage').label).toBe('Schwab Brokerage')
+  })
+
+  it('never returns an empty label for a non-empty string', () => {
+    expect(accountLabel('Bank Account').label).toBe('Bank Account')
+  })
+})
 
 describe('cleanMerchant', () => {
   it('strips processor prefixes and register numbers', () => {

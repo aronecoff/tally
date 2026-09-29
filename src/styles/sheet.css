@@ -1,0 +1,426 @@
+/* Sheet: the one sheet primitive (Sheet.tsx). Backdrop and scrim, the opaque
+   height-capped surface, grab bar, head and close, the scrolling body, the
+   pinned actions, drag and closing states, the desktop dialog, and the
+   Settings sheet content (.sync-*, .sheet-group, .sheet-row, .sheet-signout).
+   The Reduce Motion dissolve lives in base.css.
+   @layer sheet. Owner: S1B. */
+
+@layer sheet {
+  /* ---- Backdrop + scrim ---------------------------------------------------- */
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-sheet);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    /* The iOS keyboard inset (set by Sheet.tsx from visualViewport). */
+    padding-bottom: var(--kb, 0px);
+  }
+
+  /* The scrim follows a drag down (--drag 0..1) and fades out on close. */
+  .sheet-backdrop::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--scrim);
+    opacity: calc(1 - var(--drag, 0));
+    animation: scrimIn var(--dur-sheet) var(--ease-out) backwards;
+    transition: opacity var(--dur-3) var(--ease-out);
+  }
+
+  .sheet-backdrop.is-dragging::before {
+    transition: none;
+  }
+
+  .sheet-backdrop.is-closing {
+    pointer-events: none;
+  }
+
+  .sheet-backdrop.is-closing::before {
+    animation: scrimOut var(--dur-sheet-out) var(--ease-in) forwards;
+  }
+
+  /* ---- The sheet: opaque, capped, never taller than the screen ------------- */
+  .sheet {
+    position: relative;
+    width: 100%;
+    max-width: var(--app-max);
+    max-height: calc(100dvh - env(safe-area-inset-top) - 8px - var(--kb, 0px));
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-1);
+    border-top: var(--hairline-w) solid var(--hairline);
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    box-shadow: var(--elev-sheet);
+    animation: sheetIn var(--dur-sheet) var(--ease-sheet) backwards;
+    /* A released drag springs back on the sheet curve. */
+    transition: transform var(--dur-3) var(--ease-sheet);
+  }
+
+  .sheet:focus {
+    outline: none;
+  }
+
+  .sheet.is-dragging {
+    transition: none;
+  }
+
+  .sheet.is-closing {
+    animation: sheetOut var(--dur-sheet-out) var(--ease-in) forwards;
+  }
+
+  /* ---- Grab + head: the drag handle ---------------------------------------- */
+  .sheet-drag {
+    flex: none;
+    padding: var(--s-2) 20px 0;
+    touch-action: none;
+  }
+
+  .sheet-grab {
+    width: 36px;
+    height: 5px;
+    margin: 0 auto;
+    border-radius: var(--r-pill);
+    background: var(--surface-3);
+  }
+
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    min-height: 44px;
+    margin-top: var(--s-1);
+  }
+
+  .sheet-head h2 {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--fs-headline);
+    font-weight: var(--w-demi);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+
+  /* Visual 30, hit 44. */
+  .sheet-close {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin-right: -3px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: var(--fill);
+    color: var(--text-2);
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+      transform var(--dur-2) var(--ease-out);
+  }
+
+  .sheet-close::after {
+    content: '';
+    position: absolute;
+    inset: -7px;
+  }
+
+  .sheet-close:active {
+    background: var(--fill-press);
+    color: var(--text-1);
+    transform: scale(0.94);
+    transition-duration: var(--dur-press);
+  }
+
+  /* ---- Body: the only scroller in a sheet ---------------------------------- */
+  .sheet-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-4);
+    padding: var(--s-4) 20px var(--s-5);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  /* Body children keep their size; the body scrolls instead of squeezing them. */
+  .sheet-body > * {
+    flex-shrink: 0;
+  }
+
+  /* ---- Actions --------------------------------------------------------------- */
+  .sheet-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  /* The pinned footer. Empty, it is just the home-indicator spacer. */
+  .sheet > .sheet-actions {
+    flex: none;
+    padding: var(--s-3) 20px calc(var(--s-4) + env(safe-area-inset-bottom));
+  }
+
+  .sheet > .sheet-actions:empty {
+    padding: 0 0 env(safe-area-inset-bottom);
+  }
+
+  /* With the keyboard up the home indicator is covered: no safe-area pad. */
+  .sheet-backdrop[data-kb] .sheet > .sheet-actions {
+    padding-bottom: var(--s-3);
+  }
+
+  .sheet-backdrop[data-kb] .sheet > .sheet-actions:empty {
+    padding: 0;
+  }
+
+  /* ---- Settings sheet ------------------------------------------------------- */
+  .sheet-label {
+    display: block;
+    margin: var(--s-2) 0 calc(-1 * var(--s-2));
+    padding: 0 2px;
+    font-size: var(--fs-micro);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .sheet-note {
+    margin: 0;
+    font-size: var(--fs-meta);
+    line-height: 1.45;
+    color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  /* Signed-in identity: glyph, email, one status line. */
+  .sync-id {
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr);
+    column-gap: var(--glyph-gap);
+    row-gap: 3px;
+    align-items: baseline;
+    padding: var(--s-1) 2px 0;
+  }
+
+  .sync-id > svg {
+    grid-row: span 2;
+    align-self: center;
+    color: var(--text-3);
+  }
+
+  .sync-email {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    color: var(--text-1);
+  }
+
+  .sync-sub {
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    color: var(--text-3);
+  }
+
+  .sync-sub.is-err {
+    color: var(--near);
+  }
+
+  /* Grouped rows: cells sit above the sheet (surface-2), inset hairlines. */
+  .sheet-group {
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+    border: var(--hairline-w) solid var(--hairline);
+    overflow: hidden;
+  }
+
+  .sheet-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr) auto;
+    column-gap: var(--glyph-gap);
+    align-items: center;
+    width: 100%;
+    min-height: var(--row-1);
+    padding: 0 14px;
+    border: 0;
+    background: none;
+    color: var(--text-1);
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    text-align: left;
+    transition: background-color var(--dur-2) var(--ease-out);
+  }
+
+  .sheet-row > svg:first-child {
+    color: var(--text-3);
+  }
+
+  .sheet-row:active {
+    background: var(--fill-press);
+    transition-duration: var(--dur-press);
+  }
+
+  .sheet-row:disabled {
+    color: var(--text-3);
+    cursor: default;
+  }
+
+  /* Inset hairline between rows (starts under the text, not the glyph). */
+  .sheet-group > * + *::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 48px;
+    right: 0;
+    border-top: var(--hairline-w) solid var(--hairline);
+  }
+
+  /* Change password: the inline field revealed under its row. */
+  .sheet-reveal {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    padding: var(--s-1) 14px 14px 48px;
+  }
+
+  .sheet-reveal .btn-primary {
+    flex: none;
+  }
+
+  .sheet-ok {
+    margin: 0;
+    font-size: var(--fs-meta);
+    color: var(--ok);
+  }
+
+  .sheet-err {
+    margin: 0;
+    font-size: var(--fs-meta);
+    color: var(--over);
+  }
+
+  .sheet-signout {
+    width: 100%;
+    height: var(--ctl-lg);
+    border: 0;
+    border-radius: var(--r-md);
+    background: none;
+    color: var(--over);
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    transition: background-color var(--dur-2) var(--ease-out);
+  }
+
+  .sheet-signout:active {
+    background: var(--over-tint);
+    transition-duration: var(--dur-press);
+  }
+
+  .sheet-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-4);
+  }
+
+  .sheet-form .btn-primary {
+    flex: none;
+    width: 100%;
+  }
+
+  /* ---- Motion ------------------------------------------------------------- */
+  @keyframes sheetIn {
+    from {
+      transform: translate3d(0, 100%, 0);
+    }
+  }
+
+  @keyframes sheetOut {
+    to {
+      transform: translate3d(0, 100%, 0);
+    }
+  }
+
+  @keyframes dialogIn {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 12px, 0) scale(0.98);
+    }
+  }
+
+  @keyframes dialogOut {
+    to {
+      opacity: 0;
+      transform: translate3d(0, 8px, 0) scale(0.98);
+    }
+  }
+
+  @keyframes scrimIn {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes scrimOut {
+    to {
+      opacity: 0;
+    }
+  }
+
+  /* ---- Hover: pointer devices only ---------------------------------------- */
+  @media (hover: hover) and (pointer: fine) {
+    .sheet-close:hover {
+      background: var(--fill-press);
+      color: var(--text-1);
+    }
+    .sheet-row:hover:not(:disabled) {
+      background: var(--fill-press);
+    }
+  }
+
+  /* ---- Desktop: a centred dialog, no grab bar ----------------------------- */
+  @media (min-width: 920px) {
+    .sheet-backdrop {
+      align-items: center;
+      padding: var(--s-8);
+    }
+    .sheet {
+      width: 440px;
+      max-width: 100%;
+      max-height: min(calc(100dvh - 64px), 820px);
+      border: var(--hairline-w) solid var(--hairline);
+      border-radius: 20px;
+      animation: dialogIn var(--dur-3) var(--ease-out) backwards;
+    }
+    .sheet.is-closing {
+      animation: dialogOut var(--dur-2) var(--ease-in) forwards;
+    }
+    .sheet-grab {
+      display: none;
+    }
+    .sheet-drag {
+      padding-top: var(--s-3);
+      touch-action: auto;
+    }
+    .sheet > .sheet-actions,
+    .sheet > .sheet-actions:empty {
+      padding-bottom: var(--s-5);
+    }
+    .sheet > .sheet-actions:empty {
+      padding: 0;
+    }
+  }
+}

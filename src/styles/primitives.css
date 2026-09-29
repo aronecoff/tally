@@ -1,0 +1,535 @@
+/* Primitives: sections and eyebrows, the hero stack (.hero-*), .money-dec,
+   rails (.traj-bar/.traj-fill/.traj-pace/.cf-bar/.rail-fill), .cat-tile (the
+   20pt glyph column), row anatomy (.traj-*, .txn-*), the generic row
+   behaviours (.row-sep, .row-press), .chev, .enter, .skel, .nowrap and the
+   .dash-home/.dash-col layout.
+   @layer primitives. Owner: S1A. */
+
+@layer primitives {
+  /* ---- Layout ------------------------------------------------------------ */
+  .dash-home,
+  .dash-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .dash-col {
+    min-width: 0;
+  }
+
+  /* ---- Sections: 24 + hairline + 24, content on the gutter --------------- */
+  .sect,
+  .card-sect {
+    padding: 0 0 var(--s-6);
+  }
+
+  .sect + .sect,
+  .dash-col > .card-sect + .card-sect {
+    border-top: var(--hairline-w) solid var(--hairline);
+    padding-top: var(--s-6);
+  }
+
+  .sect-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s-3);
+    margin-bottom: var(--s-3);
+  }
+
+  .sect-title {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--fs-title);
+    line-height: 1.1;
+    letter-spacing: -0.005em;
+    text-transform: none;
+    color: var(--text-1);
+    font-synthesis: none;
+  }
+
+  .sect-note {
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .sect-note strong {
+    color: var(--text-2);
+    font-weight: var(--w-demi);
+  }
+
+  /* Eyebrows: 11 caps, 600, +0.1em, 24 above and 12 over their rows. */
+  .section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: var(--s-6) 0 var(--s-3);
+    font-size: var(--fs-micro);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  /* ---- Hero stack: eyebrow, state word, serif figure, caption, visual ---- */
+  .hero-label {
+    display: block;
+    font-size: var(--fs-micro);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .hero-state {
+    display: block;
+    margin-top: 6px;
+    font: var(--w-demi) var(--fs-row) / 1.3 var(--font-ui);
+    letter-spacing: -0.01em;
+    color: var(--text-1);
+  }
+
+  .hero-state.ok {
+    color: var(--ok);
+  }
+
+  .hero-state.pace {
+    color: var(--near);
+  }
+
+  .hero-state.over {
+    color: var(--over);
+  }
+
+  .hero-fig {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: var(--fs-hero);
+    line-height: 1;
+    letter-spacing: -0.015em;
+    color: var(--text-1);
+    font-synthesis: none;
+  }
+
+  .hero-caption {
+    display: block;
+    margin-top: 6px;
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  /* Quieter cents on large figures (<Money>). */
+  .money-dec {
+    font-size: 0.56em;
+    opacity: 0.6;
+    letter-spacing: 0;
+    margin-left: 0.02em;
+  }
+
+  /* ---- Rails: a hairline track, neutral fill, coloured only when not fine */
+  .traj-bar,
+  .cf-bar {
+    position: relative;
+    height: 3px;
+    border-radius: var(--r-pill);
+    background: var(--track);
+    overflow: visible;
+  }
+
+  .traj-fill,
+  .cf-bar-fill {
+    height: 100%;
+    border-radius: var(--r-pill);
+    background: var(--viz-strong);
+    transition: width var(--dur-4) var(--ease-out);
+  }
+
+  .traj-fill.ok,
+  .cf-bar-fill.out {
+    background: var(--viz-strong);
+  }
+
+  .cf-bar-fill.in {
+    background: var(--viz-soft);
+  }
+
+  .traj-fill.pace,
+  .cf-bar-fill.pace {
+    background: var(--near-mark);
+  }
+
+  .traj-fill.over,
+  .cf-bar-fill.over,
+  .cf-bar-fill.out.over {
+    background: var(--over-mark);
+  }
+
+  /* Pace tick: where an even spender would be today. Never clipped by the rail. */
+  .traj-pace {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 1.5px;
+    margin-left: -0.75px;
+    border-radius: 1px;
+    background: var(--text-1);
+    opacity: 0.6;
+    box-shadow: 0 0 0 1px var(--bg);
+    pointer-events: none;
+  }
+
+  /* Transform-driven fill (--p = 0..1). Grows once, never replays. */
+  .rail-fill {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    transform-origin: left center;
+    transform: scaleX(var(--p, 0));
+    transition: transform var(--dur-4) var(--ease-out);
+  }
+
+  @starting-style {
+    .pane:not([data-seen]) .rail-fill {
+      transform: scaleX(0);
+    }
+  }
+
+  /* ---- The glyph column: 20pt, borderless, text-3 ----------------------- */
+  .cat-tile {
+    width: var(--glyph);
+    height: var(--glyph);
+    flex: 0 0 var(--glyph);
+    display: grid;
+    place-items: center;
+    border: 0;
+    background: none;
+    border-radius: 0;
+    color: var(--text-3);
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .cat-tile.over {
+    color: var(--over);
+  }
+
+  .cat-tile.pace {
+    color: var(--near);
+  }
+
+  /* ---- Budget rows (.traj-*) --------------------------------------------- */
+  .traj-row {
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr) auto;
+    column-gap: var(--glyph-gap);
+    align-items: start;
+  }
+
+  /* Two-child rows (no trailing column) take the full width. */
+  .traj-row > .traj-main:last-child {
+    grid-column: 2 / -1;
+  }
+
+  .traj-row > .cat-tile {
+    margin-top: 1px;
+  }
+
+  .traj-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    min-width: 0;
+  }
+
+  .traj-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s-3);
+  }
+
+  .traj-name {
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+  }
+
+  .traj-figs {
+    font-size: var(--fs-meta);
+    white-space: nowrap;
+  }
+
+  .traj-figs strong {
+    font-weight: var(--w-medium);
+  }
+
+  .traj-figs .of {
+    color: var(--text-3);
+    font-weight: var(--w-regular);
+  }
+
+  .traj-meta {
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+  }
+
+  .traj-empty {
+    font-size: var(--fs-meta);
+    color: var(--text-3);
+    padding: 6px 0;
+    list-style: none;
+  }
+
+  /* ---- Transaction rows: glyph | title + meta | figure, 60pt, one line each */
+  .txn-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--group-pad);
+    border: 0;
+    border-radius: var(--r-lg);
+    background: var(--group-bg);
+    box-shadow: none;
+  }
+
+  .txn-row {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr) auto;
+    column-gap: var(--glyph-gap);
+    row-gap: 3px;
+    align-items: baseline;
+    min-height: var(--row-2);
+    padding: 12px 0;
+    cursor: pointer;
+  }
+
+  .txn-row > .cat-tile {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    align-self: center;
+  }
+
+  .txn-main {
+    display: contents;
+  }
+
+  .txn-note {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .txn-sub {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    min-width: 0;
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .txn-amt {
+    grid-column: 3;
+    grid-row: 1;
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .txn-row {
+      animation: rowIn 0.42s var(--ease-out) backwards;
+      animation-delay: calc(var(--i, 0) * 45ms);
+    }
+  }
+
+  @keyframes rowIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  /* ---- Generic row behaviours (screens apply these by className) --------- */
+  /* Inset hairline between rows, starting at the text column. */
+  .row-sep + .row-sep::before,
+  .txn-row + .txn-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(var(--glyph) + var(--glyph-gap));
+    right: 0;
+    border-top: var(--hairline-w) solid var(--hairline);
+  }
+
+  /* Press: a fill that bleeds 10px past the content edge, delayed so a scroll
+     that starts on a row does not flash it. */
+  .row-press {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .row-press::after,
+  .txn-row::after {
+    content: '';
+    position: absolute;
+    inset: 0 -10px;
+    border-radius: 12px;
+    background: var(--fill-press);
+    opacity: 0;
+    transition: opacity var(--dur-2) var(--ease-out);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .row-press:active::after,
+  .txn-row:active::after {
+    opacity: 1;
+    transition: opacity 80ms linear 60ms;
+  }
+
+  /* ---- Disclosure chevron ------------------------------------------------ */
+  .chev {
+    color: var(--text-3);
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+
+  .chev.open {
+    transform: rotate(90deg);
+  }
+
+  /* ---- Entrance: plays the first time a pane is seen, never on re-show --- */
+  .enter {
+    animation: enterIn 0.42s var(--ease-out) backwards;
+  }
+
+  .pane[data-seen] .enter {
+    animation: none;
+  }
+
+  @keyframes enterIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  @keyframes cardIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+
+  .dash-col > * {
+    animation: cardIn 0.42s var(--ease-out) backwards;
+  }
+
+  .dash-col > *:nth-child(2) {
+    animation-delay: 0.055s;
+  }
+
+  .dash-col > *:nth-child(3) {
+    animation-delay: 0.11s;
+  }
+
+  .dash-col > *:nth-child(4) {
+    animation-delay: 0.165s;
+  }
+
+  .dash-col > *:nth-child(n + 5) {
+    animation-delay: 0.21s;
+  }
+
+  /* ---- Skeleton: shape without a false $0.00 ------------------------------ */
+  .skel {
+    display: block;
+    background: var(--track);
+    border-radius: var(--r-xs);
+  }
+
+  .skel-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s-2);
+    padding-bottom: var(--s-6);
+  }
+
+  .skel-row {
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr) auto;
+    column-gap: var(--glyph-gap);
+    align-items: center;
+    min-height: var(--row-2);
+  }
+
+  .skel-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .skel {
+      animation: skelPulse 1.2s var(--ease-out) infinite alternate;
+    }
+  }
+
+  @keyframes skelPulse {
+    to {
+      opacity: 0.5;
+    }
+  }
+
+  .nowrap {
+    white-space: nowrap;
+  }
+
+  @media (min-width: 920px) {
+    .txn-list {
+      max-width: 660px;
+      margin-inline: auto;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    /* Two columns once there's room for them (sidebar + 2 columns). */
+    .dash-home {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0 var(--s-6);
+      align-items: start;
+    }
+    /* Left column stays put while the longer right column scrolls (desktop 2-col). */
+    .dash-home > .dash-col:first-child {
+      position: sticky;
+      top: 4px;
+      align-self: start;
+    }
+  }
+}

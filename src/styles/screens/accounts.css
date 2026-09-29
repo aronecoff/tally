@@ -1,0 +1,442 @@
+/* Accounts ([data-screen="accounts"]): .accounts, the net-worth hero and its
+   status line (.nw-*), the balance map (.nwmap-*), tiers and account rows
+   (.tier*, .acct-*) and the Connections group (.add-group).
+   The hero type (.hero-*), .sect, .row-sep, .row-press, .chev and .cat-tile are
+   shared primitives applied by className.
+   @layer screens. Owner: S2-accounts. */
+
+@layer screens {
+  .accounts {
+    max-width: 520px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* One column: the tier lists are their own section under the map. */
+  .accounts > .dash-col + .dash-col {
+    border-top: var(--hairline-w) solid var(--hairline);
+    padding-top: var(--s-6);
+  }
+
+  /* ---- Hero: eyebrow, figure, owned · owed, then the status line --------- */
+  .nw-hero {
+    padding-top: var(--s-2);
+  }
+
+  /* A quiet 28pt line with a 44pt hit area. It never forces a bank fetch. */
+  .nw-status {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--ctl-sm);
+    margin-top: var(--s-2);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-3);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    text-align: left;
+    text-wrap: pretty;
+    transition: opacity var(--dur-2) var(--ease-out);
+  }
+
+  .nw-status::after {
+    content: '';
+    position: absolute;
+    inset: calc((var(--ctl-sm) - var(--hit)) / 2) -8px;
+  }
+
+  .nw-status svg {
+    flex: none;
+  }
+
+  .nw-status:disabled {
+    cursor: default;
+  }
+
+  .nw-status:active:not(:disabled) {
+    opacity: 0.6;
+    transition-duration: var(--dur-press);
+  }
+
+  .nw-status.is-err {
+    color: var(--near);
+  }
+
+  /* ---- The balance map --------------------------------------------------- */
+  /* Not clipped: an edge tile's hit slop may reach into the gutter or the legend. */
+  .nwmap {
+    position: relative;
+    width: 100%;
+  }
+
+  /* Tier identity as a low tint plus a crisp 3px top rule. */
+  .nwmap-tile {
+    position: absolute;
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: var(--hairline-w) solid var(--hairline);
+    border-radius: var(--r-xs);
+    background: color-mix(in srgb, var(--tier, transparent) 24%, transparent);
+    box-shadow: none;
+    color: var(--text-1);
+    text-align: left;
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+
+  .nwmap-tile::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: calc(var(--r-xs) - 1px) calc(var(--r-xs) - 1px) 0 0;
+    background: var(--tier, transparent);
+    pointer-events: none;
+  }
+
+  /* Hit slop per side, set by Accounts.tsx: out over the map's outer edges and
+     only halfway into a gap, so no tile ever takes a tap on a neighbour. The
+     hairline is added back because the inset is measured from the padding box. */
+  .nwmap-tile::after {
+    content: '';
+    position: absolute;
+    top: calc(-1 * (var(--slop-t, 0px) + var(--hairline-w)));
+    right: calc(-1 * (var(--slop-r, 0px) + var(--hairline-w)));
+    bottom: calc(-1 * (var(--slop-b, 0px) + var(--hairline-w)));
+    left: calc(-1 * (var(--slop-l, 0px) + var(--hairline-w)));
+  }
+
+  .nwmap-tile:active {
+    transform: scale(0.98);
+    transition-duration: var(--dur-press);
+  }
+
+  /* Each tier sets its token and its tint. */
+  .nwmap-tile.cash {
+    --tier: var(--tier-cash);
+    background: color-mix(in srgb, var(--tier-cash) 26%, transparent);
+  }
+
+  .nwmap-tile.brokerage {
+    --tier: var(--tier-brokerage);
+    background: color-mix(in srgb, var(--tier-brokerage) 26%, transparent);
+  }
+
+  .nwmap-tile.retirement {
+    --tier: var(--tier-retirement);
+    background: color-mix(in srgb, var(--tier-retirement) 26%, transparent);
+  }
+
+  .nwmap-tile.benefit {
+    --tier: var(--tier-benefit);
+    background: color-mix(in srgb, var(--tier-benefit) 26%, transparent);
+  }
+
+  .nwmap-tile.credit {
+    --tier: var(--tier-credit);
+    background: color-mix(in srgb, var(--tier-credit) 30%, transparent);
+  }
+
+  /* Labels anchored top-left and clipped by the tile, never by an ellipsis on
+     money: the name may end in '…', the amount only ever shows whole. */
+  .nwmap-label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 9px 8px 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  /* A tile under 30pt holds the amount alone, centred below the tier rule so
+     the figure never sits on the bottom edge. */
+  .nwmap-label.tight {
+    padding-top: 5px;
+  }
+
+  .nwmap-name {
+    max-width: 100%;
+    font-size: var(--fs-micro);
+    font-weight: var(--w-medium);
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .nwmap-amt {
+    font-size: var(--fs-meta);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* Legend: dot and tier name only. */
+  .nwmap-key {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-1) var(--s-4);
+    margin-top: var(--s-3);
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+  }
+
+  .nwmap-key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .nwmap-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    display: inline-block;
+  }
+
+  .nwmap-dot.cash {
+    background: var(--tier-cash);
+  }
+
+  .nwmap-dot.brokerage {
+    background: var(--tier-brokerage);
+  }
+
+  .nwmap-dot.retirement {
+    background: var(--tier-retirement);
+  }
+
+  .nwmap-dot.benefit {
+    background: var(--tier-benefit);
+  }
+
+  .nwmap-dot.credit {
+    background: var(--tier-credit);
+  }
+
+  /* ---- Tiers: an eyebrow with the tier dot, a subordinate total ------------ */
+  .tier + .tier {
+    margin-top: var(--s-6);
+  }
+
+  .tier-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    /* The total sits in the balance column: clear of the 14pt chevron and its gap. */
+    padding: 0 calc(14px + var(--s-2)) var(--s-1) 0;
+  }
+
+  .tier-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    font-size: var(--fs-micro);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .tier-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+  }
+
+  .tier-dot.cash {
+    background: var(--tier-cash);
+  }
+
+  .tier-dot.credit {
+    background: var(--tier-credit);
+  }
+
+  .tier-dot.brokerage {
+    background: var(--tier-brokerage);
+  }
+
+  .tier-dot.retirement {
+    background: var(--tier-retirement);
+  }
+
+  .tier-dot.benefit {
+    background: var(--tier-benefit);
+  }
+
+  .tier-total {
+    font-size: var(--fs-meta);
+    font-weight: var(--w-medium);
+    line-height: 1.35;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  /* ---- Rows: 60pt, glyph | name + sub | balance | chevron ------------------ */
+  /* Dissolved: the Quiet list (no card, no blur, no elevation). */
+  .acct-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 var(--group-pad);
+    border: 0;
+    border-radius: var(--r-lg);
+    background: var(--group-bg);
+    box-shadow: none;
+  }
+
+  /* The inset hairline (.row-sep::before) is placed against the item. */
+  .acct-list > li {
+    position: relative;
+  }
+
+  .acct-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: var(--row-2);
+    margin: 0;
+    padding: 10px 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+  }
+
+  .acct-row > .cat-tile {
+    margin-right: var(--glyph-gap);
+  }
+
+  .acct-main {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .acct-name {
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .acct-sub {
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .acct-sub.stale,
+  .acct-sub.is-err {
+    color: var(--near);
+  }
+
+  .acct-bal {
+    flex: none;
+    margin-left: var(--s-3);
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    color: var(--text-1);
+    white-space: nowrap;
+  }
+
+  .acct-chev {
+    flex: none;
+    margin-left: var(--s-2);
+  }
+
+  /* A group footer for connect results (brokerage window, bank sheet). */
+  .acct-note {
+    margin: var(--s-2) 0 0;
+    padding-left: calc(var(--glyph) + var(--glyph-gap));
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+    text-wrap: pretty;
+  }
+
+  .acct-note.is-err {
+    color: var(--near);
+  }
+
+  /* Refresh glyphs turn only while work runs, and only when motion is allowed. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-screen="accounts"] .spin {
+      animation: nwSpin 0.9s linear infinite;
+    }
+  }
+
+  @keyframes nwSpin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (min-width: 920px) {
+    .accounts {
+      max-width: 660px;
+      margin-inline: auto;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    /* Accounts fills the main column: hero and map left, lists right. */
+    .accounts {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: var(--s-6);
+      align-items: start;
+      max-width: none;
+    }
+    .accounts > .dash-col:first-child {
+      position: sticky;
+      top: 4px;
+      align-self: start;
+    }
+    /* The first tier eyebrow lines up with the Net worth eyebrow. */
+    .accounts > .dash-col + .dash-col {
+      border-top: 0;
+      padding-top: var(--s-2);
+    }
+  }
+
+  /* Hover: pointer devices only (no sticky iOS hover). */
+  @media (hover: hover) and (pointer: fine) {
+    .nwmap-tile:hover:not(:active) {
+      transform: translateY(-1px);
+    }
+    .nw-status:hover:not(:disabled) {
+      color: var(--text-2);
+    }
+  }
+}

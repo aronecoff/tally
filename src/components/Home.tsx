@@ -1,16 +1,28 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
-import { currentMonth, todayISO, monthLabel } from '../lib/dates'
+import { currentMonth, todayISO, monthShortLabel, dayLabel } from '../lib/dates'
 import { paceProjector } from '../lib/projection'
+import { isFixedCategory } from '../lib/categorize'
 import { cleanMerchant } from '../lib/merchants'
-import { money } from '../lib/format'
+import { money, pct } from '../lib/format'
+import { rowState, budgetStatus, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET, BY_MONTH_END } from '../lib/copy'
 import { Icon } from './Icon'
+import { Money } from './Money'
+import { Pending } from './Pending'
+import { Skeleton } from './Skeleton'
+import { pressable } from '../lib/pressable'
 
 interface Props {
   categories: Category[]
   onEdit: (t: Transaction) => void
   onMore: () => void
+  /** This pane is the visible one (stage 2 skips heavy work while hidden). */
+  active: boolean
+  /** Open the sort queue for posted, uncategorized spending. */
+  onSort?: () => void
+  /** Open Budget with this category expanded. */
+  onOpenCategory?: (key: string) => void
 }
 
 type Row = {
@@ -20,46 +32,102 @@ type Row = {
   spent: number
   budget: number
   projected: number
+  fixed: boolean
+  txnCount: number
+  pendingCount: number
+}
+
+const EMPTY: Transaction[] = []
+const DETAIL_KEY = 'tally-home-detail'
+
+// ≥1040 the two-column desktop has room for everything, so detail is always on.
+const WIDE = '(min-width: 1040px)'
+function subscribeWide(cb: () => void) {
+  if (typeof window === 'undefined' || !window.matchMedia) return () => {}
+  const mq = window.matchMedia(WIDE)
+  mq.addEventListener?.('change', cb)
+  return () => mq.removeEventListener?.('change', cb)
+}
+const getWide = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(WIDE).matches
+const getWideServer = () => false
+
+function readDetail(): boolean {
+  try {
+    return localStorage.getItem(DETAIL_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function writeDetail(on: boolean) {
+  try {
+    localStorage.setItem(DETAIL_KEY, on ? '1' : '0')
+  } catch {
+    /* storage blocked: remembered for this session only */
+  }
 }
 
 /**
- * Home = the live dashboard for the current month. One clean scroll: cash flow →
- * quick add → day-by-day → every budget category with pace + projected month-end
- * → recurring bills. All liquid-glass, all footed off real synced transactions.
+ * While the pane is hidden, hand back the last value seen while it was visible,
+ * so live-query updates from a background sync do not recompute Home's memos.
+ * The first visible render passes the fresh value straight through.
  */
-export function Home({ categories, onEdit, onMore }: Props) {
+function useWhileActive<T>(value: T, active: boolean): T {
+  const [held, setHeld] = useState(value)
+  if (active && held !== value) setHeld(value)
+  return active ? value : held
+}
+
+const railP = (p: number) => ({ '--p': Math.max(0, Math.min(1, p)) }) as CSSProperties
+
+/**
+ * Home = the live dashboard for the current month. One budget hero (state word,
+ * figure, rail), the Income/Spending contributors and the net, then only what
+ * needs you. The day bars, budgets and recurring bills sit behind 'Show charts'
+ * (always shown on the wide desktop).
+ */
+export const Home = memo(function Home({ categories, onEdit, onMore, active, onSort, onOpenCategory }: Props) {
   const month = currentMonth()
   const today = todayISO()
   const now = new Date()
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
   const dayOfMonth = now.getDate()
 
-  const monthTxns = useLiveQuery(() => db.transactions.where('date').startsWith(month).toArray(), [month], [])
+  // No [] defaults: undefined means "still loading" and shows the skeleton, so
+  // Home never flashes $0.00 or a false 'all on track'.
+  const liveMonth = useLiveQuery(() => db.transactions.where('date').startsWith(month).toArray(), [month])
   const since = useMemo(() => {
     const d = new Date()
     d.setDate(d.getDate() - 100)
     return d.toISOString().slice(0, 10)
   }, [])
-  const recentTxns = useLiveQuery(() => db.transactions.where('date').aboveOrEqual(since).toArray(), [since], [])
+  const liveRecent = useLiveQuery(() => db.transactions.where('date').aboveOrEqual(since).toArray(), [since])
+
+  const monthTxns = useWhileActive(liveMonth, active)
+  const recentTxns = useWhileActive(liveRecent, active)
+  const cats = useWhileActive(categories, active)
 
   const catById = useMemo(() => {
     const m = new Map<number, Category>()
-    for (const c of categories) if (c.id != null) m.set(c.id, c)
+    for (const c of cats) if (c.id != null) m.set(c.id, c)
     return m
-  }, [categories])
+  }, [cats])
 
   const d = useMemo(() => {
     let income = 0
     let spend = 0
     const byCat = new Map<number | null, number>()
+    const countByCat = new Map<number | null, number>()
+    const pendingByCat = new Map<number | null, number>()
     const daily = new Array(daysInMonth).fill(0)
-    for (const t of monthTxns) {
+    for (const t of monthTxns ?? EMPTY) {
       if (t.deleted) continue
       if (t.type === 'income') {
         income += t.amount
       } else {
         spend += t.amount
         byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
+        countByCat.set(t.categoryId, (countByCat.get(t.categoryId) ?? 0) + 1)
+        if (t.pending) pendingByCat.set(t.categoryId, (pendingByCat.get(t.categoryId) ?? 0) + 1)
         const day = Number(t.date.slice(8, 10))
         if (day >= 1 && day <= daysInMonth) daily[day - 1] += t.amount
       }
@@ -68,7 +136,7 @@ export function Home({ categories, onEdit, onMore }: Props) {
     const p = paceProjector(dayOfMonth, daysInMonth)
     const divisor = dayOfMonth > 0 ? dayOfMonth : daysInMonth
 
-    const expenseCats = categories.filter((c) => c.kind === 'expense' && !c.deleted)
+    const expenseCats = cats.filter((c) => c.kind === 'expense' && !c.deleted)
     const catSpends = expenseCats.map((c) => ({
       name: c.name,
       spent: byCat.get(c.id!) ?? 0,
@@ -78,11 +146,33 @@ export function Home({ categories, onEdit, onMore }: Props) {
       .map((c) => {
         const spent = byCat.get(c.id!) ?? 0
         const budget = c.monthlyBudget || 0
-        return { id: c.id!, name: c.name, icon: c.icon, spent, budget, projected: p.forCategory(c.name, spent, budget) }
+        return {
+          id: c.id!,
+          name: c.name,
+          icon: c.icon,
+          spent,
+          budget,
+          projected: p.forCategory(c.name, spent, budget),
+          fixed: isFixedCategory(c.name),
+          txnCount: countByCat.get(c.id!) ?? 0,
+          pendingCount: pendingByCat.get(c.id!) ?? 0,
+        }
       })
       .filter((r) => r.spent > 0 || r.budget > 0)
     const uncat = byCat.get(null) ?? 0
-    if (uncat > 0) rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, budget: 0, projected: p.extrapolate(uncat) })
+    if (uncat > 0) {
+      rows.push({
+        id: null,
+        name: 'Uncategorized',
+        icon: 'tag',
+        spent: uncat,
+        budget: 0,
+        projected: p.extrapolate(uncat),
+        fixed: false,
+        txnCount: countByCat.get(null) ?? 0,
+        pendingCount: pendingByCat.get(null) ?? 0,
+      })
+    }
     rows.sort((a, b) => b.spent - a.spent)
 
     const totalBudget = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
@@ -99,12 +189,12 @@ export function Home({ categories, onEdit, onMore }: Props) {
       canProject: p.canProject,
       avgPerDay: Math.round(spend / divisor),
     }
-  }, [monthTxns, categories, daysInMonth, dayOfMonth])
+  }, [monthTxns, cats, daysInMonth, dayOfMonth])
 
   // Recurring bills: an expense whose merchant recurs across ≥2 distinct months.
   const bills = useMemo(() => {
     const groups = new Map<string, { name: string; months: Set<string>; last: number; lastDate: string; catId: number | null }>()
-    for (const t of recentTxns) {
+    for (const t of recentTxns ?? EMPTY) {
       if (t.deleted || t.type !== 'expense') continue
       // Group by the CLEANED merchant, or "SAFEWAY #1234" and "SAFEWAY #5678"
       // read as two different bills and recurring detection undercounts.
@@ -129,289 +219,404 @@ export function Home({ categories, onEdit, onMore }: Props) {
   }, [recentTxns])
 
   const todays = useMemo(
-    () => monthTxns.filter((t) => !t.deleted && t.date === today).sort((a, b) => (b.id ?? 0) - (a.id ?? 0)),
+    () => (monthTxns ?? EMPTY).filter((t) => !t.deleted && t.date === today).sort((a, b) => (b.id ?? 0) - (a.id ?? 0)),
     [monthTxns, today],
   )
+
+  // Calm by default, detail on demand: only the verdict and anything that needs
+  // action are always visible. The charts and full lists sit behind one
+  // disclosure (remembered across visits). Everything is still tracked either way.
+  const [showDetail, setShowDetail] = useState(readDetail)
+  const toggleDetail = () =>
+    setShowDetail((v) => {
+      writeDetail(!v)
+      return !v
+    })
+  const wide = useSyncExternalStore(subscribeWide, getWide, getWideServer)
+  const detail = showDetail || wide
+
+  // Every hook sits above this line: the skeleton return keeps hook order stable.
+  if (monthTxns === undefined || recentTxns === undefined) return <Skeleton variant="home" />
 
   const inTotal = d.income
   const outTotal = d.spend
   const flowMax = Math.max(1, inTotal, outTotal)
 
   // The top of Home answers one question: am I inside my BUDGET? That is not the
-  // same question as "am I inside my means", so the verdict says which one it is
-  // — otherwise a green "on track" sits directly above a red "over income" and
-  // the two read as a contradiction.
+  // same question as "am I inside my means", so the hero says which one it is
+  // and the net sits below it as its own line; otherwise a green "on track"
+  // sits directly above a red "over income" and the two read as a contradiction.
   const overIncome = inTotal > 0 && outTotal > inTotal
   const overBudget = d.totalBudget > 0 && d.spend > d.totalBudget
   const overPaceBudget = d.totalBudget > 0 && !overBudget && d.canProject && d.projectedTotal > d.totalBudget
   const budgetPct = d.totalBudget > 0 ? Math.min(100, (d.spend / d.totalBudget) * 100) : 0
   const budgetState = overBudget ? 'over' : overPaceBudget ? 'pace' : 'ok'
+  const pacePct = daysInMonth > 0 ? (dayOfMonth / daysInMonth) * 100 : 0
+  const hasBudget = d.totalBudget > 0
+  const hasActivity = inTotal > 0 || outTotal > 0
 
-  // Calm by default, detail on demand: only the verdict and anything that needs
-  // action are always visible. The charts and full lists sit behind one toggle
-  // (remembered across visits). Everything is still tracked either way.
-  const [showDetail, setShowDetail] = useState(() => localStorage.getItem('tally-home-detail') === '1')
-  const toggleDetail = () =>
-    setShowDetail((v) => {
-      localStorage.setItem('tally-home-detail', v ? '0' : '1')
-      return !v
-    })
-
-  // What actually needs the user: over budget, likely to go over, or unfiled.
+  // What needs you: over budget, likely to go over, or unfiled, plus (while the
+  // month total is at risk) the unbudgeted spending that is pushing it there.
+  const totalAtRisk = overBudget || overPaceBudget
   const attention = d.rows.filter(
-    (r) => r.id === null || (r.budget > 0 && (r.spent > r.budget || (d.canProject && r.projected > r.budget))),
+    (r) =>
+      r.id === null ||
+      (r.budget > 0 && (r.spent > r.budget || (d.canProject && r.projected > r.budget))) ||
+      (totalAtRisk && r.budget === 0 && r.spent > 0),
   )
 
-  const renderRow = (r: Row) => {
-    const hasBudget = r.budget > 0
-    const pct = hasBudget ? Math.min((r.spent / r.budget) * 100, 100) : 0
-    const over = hasBudget && r.spent > r.budget
-    const overPace = hasBudget && !over && r.projected > r.budget
-    const state = !hasBudget ? 'none' : over ? 'over' : overPace ? 'pace' : 'ok'
+  const statusOf = (r: Row) => {
+    const state = rowState({ spent: r.spent, limit: r.budget, projected: r.projected, fixed: r.fixed, isCurrent: true })
+    const status = budgetStatus({
+      name: r.name,
+      spent: r.spent,
+      limit: r.budget,
+      projected: r.projected,
+      canProject: d.canProject,
+      state,
+      isUncategorized: r.id === null,
+      txnCount: r.txnCount,
+      pendingCount: r.pendingCount,
+      fixed: r.fixed,
+    })
+    return { state, status }
+  }
+
+  const tileClass = (state: string) => (state === 'over' || state === 'pace' ? ` ${state}` : '')
+
+  const figs = (r: Row) => (
+    <span className="traj-figs num">
+      <strong>{money(r.spent)}</strong>
+      {r.budget > 0 && <span className="of"> of {money(r.budget, { trim: true })}</span>}
+    </span>
+  )
+
+  // Uncategorized: posted rows go to the sort queue. Pending rows never do (a
+  // manual pin on a pending charge can double-count once it posts), so an
+  // all-pending Uncategorized only opens its Budget drill.
+  const actOn = (r: Row) => () => {
+    if (r.id === null) {
+      if (r.txnCount - r.pendingCount > 0) onSort?.()
+      else onOpenCategory?.('uncat')
+      return
+    }
+    onOpenCategory?.(String(r.id))
+  }
+
+  const renderAttention = (r: Row) => {
+    const { state, status } = statusOf(r)
+    const unbudgeted = r.id !== null && r.budget <= 0
+    const text = unbudgeted ? `${NO_BUDGET} · counts toward your total` : status.text
+    const tone = unbudgeted ? 'muted' : status.tone
+    // The tap lives on the <li> so a click anywhere in the row reaches it; the
+    // button supplies focus, Enter/Space and the role, and its click bubbles here.
     return (
-      <li key={r.id ?? 'uncat'} className="traj-row">
-        <span className={`cat-tile sm ${state}`}><Icon name={r.icon} size={16} /></span>
+      <li key={r.id ?? 'uncat'} className="row-sep" onClick={actOn(r)}>
+        <button type="button" className="traj-row home-row row-press">
+          <span className={`cat-tile${tileClass(state)}`}>
+            <Icon name={r.icon} size={18} />
+          </span>
+          <span className="traj-main">
+            <span className="traj-top">
+              <span className="traj-name">{r.name}</span>
+              {figs(r)}
+            </span>
+            <span className={`traj-meta ${tone}`}>{text}</span>
+          </span>
+          <Icon name="chevron" size={14} className="chev" />
+        </button>
+      </li>
+    )
+  }
+
+  const renderBudget = (r: Row) => {
+    const { state, status } = statusOf(r)
+    const withBudget = r.budget > 0
+    const fill = state === 'over' || state === 'pace' ? state : 'ok'
+    const showMeta = state !== 'ok'
+    return (
+      <li key={r.id ?? 'uncat'} className={`row-sep traj-row home-brow${showMeta ? ' has-meta' : ''}`}>
+        <span className={`cat-tile${tileClass(state)}`}>
+          <Icon name={r.icon} size={18} />
+        </span>
         <div className="traj-main">
           <div className="traj-top">
             <span className="traj-name">{r.name}</span>
-            <span className="traj-figs num">
-              <strong>{money(r.spent)}</strong>
-              {hasBudget && <span className="of"> / {money(r.budget)}</span>}
-            </span>
+            {figs(r)}
           </div>
-          {hasBudget && (
+          {withBudget && (
             <div className="traj-bar">
-              <div className={`traj-fill ${state}`} style={{ width: `${pct}%` }} />
+              <div className={`traj-fill rail-fill ${fill}`} style={railP(r.spent / r.budget)} />
+              {!r.fixed && <i className="traj-pace" style={{ left: `${pacePct}%` }} />}
             </div>
           )}
-          <div className="traj-meta">
-            {!hasBudget ? (
-              <span className="muted">{r.id === null ? 'needs a category — sort it in Budget' : 'not budgeted'}</span>
-            ) : over ? (
-              <span className="over">over by {money(r.spent - r.budget)}</span>
-            ) : overPace ? (
-              <span className="near">expecting ~{money(r.projected, { approx: true })} — over its {money(r.budget)}</span>
-            ) : (
-              <span className="pos">on track · {money(r.budget - r.spent)} left</span>
-            )}
-          </div>
+          {showMeta && <div className={`traj-meta ${status.tone}`}>{status.text}</div>}
         </div>
       </li>
     )
   }
 
+  const spentRows = d.rows.filter((r) => r.spent > 0)
+  const quiet = d.rows.filter((r) => r.spent === 0 && r.budget > 0)
+  const quietLine = (() => {
+    if (quiet.length === 0) return null
+    const names = quiet.map((r) => r.name)
+    const listed = names.length > 4 ? `${names.slice(0, 4).join(', ')} +${names.length - 4} more` : names.join(', ')
+    const ready = quiet.reduce((s, r) => s + r.budget, 0)
+    return `Nothing yet in ${listed} · ${money(ready, { trim: true })} ready`
+  })()
+
+  const heroLabel = `${monthShortLabel(month)} · day ${dayOfMonth} of ${daysInMonth}`
+
   return (
-    <div className="dash-home">
+    <div className={`dash-home${detail ? '' : ' is-calm'}`}>
       <div className="dash-col">
-      {/* Cash flow + budget verdict */}
-      <div className="cf-card">
-        <div className="cf-head">
-          <span className="cf-title">{monthLabel(month)} at a glance</span>
-        </div>
-
-        {d.totalBudget > 0 && (
-          <div className={`bud-verdict ${budgetState}`}>
-            <div className="bud-verdict-top">
-              <span className="bud-verdict-label">
-                {overBudget ? 'Over budget' : overPaceBudget ? 'Likely to go over' : 'On track for your budget'}
+        {/* The one hero: budget state, what is left (or over), the rail. */}
+        <section className="sect home-hero enter">
+          <span className="hero-label">{heroLabel}</span>
+          {hasBudget ? (
+            <>
+              <span className={`hero-state ${budgetState}`}>
+                {overBudget ? 'Over budget' : overPaceBudget ? 'Likely to go over' : 'On track'}
               </span>
-              <span className="bud-verdict-fig num">
-                {overBudget
-                  ? `${money(d.spend - d.totalBudget)} over`
-                  : `${money(d.totalBudget - d.spend)} left`}
+              <div className="hero-fig">
+                <Money value={overBudget ? d.spend - d.totalBudget : d.totalBudget - d.spend} />
+                <span className="home-hero-unit"> {overBudget ? 'over' : 'left'}</span>
+              </div>
+              <div className="traj-bar home-hero-rail">
+                <div className={`traj-fill rail-fill ${budgetState}`} style={railP(budgetPct / 100)} />
+                <i className="traj-pace" style={{ left: `${pacePct}%` }} />
+              </div>
+              <span className="hero-caption num">
+                of {money(d.totalBudget, { trim: true })} budget
+                {d.canProject && !overBudget && (
+                  <>
+                    {' · '}
+                    <span className="nowrap">
+                      ~{money(d.projectedTotal, { approx: true })} {BY_MONTH_END}
+                    </span>
+                  </>
+                )}
               </span>
-            </div>
-            <div className="traj-bar">
-              <div className={`traj-fill ${budgetState}`} style={{ width: `${budgetPct}%` }} />
-            </div>
-            <span className="bud-verdict-sub num">
-              {money(d.spend)} spent of {money(d.totalBudget)}
-              {d.canProject && !overBudget && <> · expecting ~{money(d.projectedTotal, { approx: true })} by month-end</>}
-            </span>
-          </div>
-        )}
-        <div className="cf-flows">
-          <div className="cf-flow">
-            <div className="cf-flow-top">
-              <span className="cf-flow-label"><span className="cf-dot in" /> Money in</span>
-              <span className="cf-flow-amt num">{money(inTotal)}</span>
-            </div>
-            <div className="cf-bar"><div className="cf-bar-fill in" style={{ width: `${(inTotal / flowMax) * 100}%` }} /></div>
-          </div>
-          <div className="cf-flow">
-            <div className="cf-flow-top">
-              <span className="cf-flow-label"><span className="cf-dot out" /> Money out</span>
-              <span className="cf-flow-amt num">{money(outTotal)}</span>
-            </div>
-            <div className="cf-bar"><div className="cf-bar-fill out" style={{ width: `${(outTotal / flowMax) * 100}%` }} /></div>
-          </div>
-        </div>
-
-        {/* Savings — what actually stayed in your pocket this month. */}
-        {(inTotal > 0 || outTotal > 0) && (
-          <div className="cf-save">
-            <span className="cf-save-label">{d.net >= 0 ? 'Saved so far this month' : 'Spent more than earned so far'}</span>
-            <span className="cf-save-figs">
-              <strong className={`num ${d.net >= 0 ? 'pos' : 'over'}`}>{money(Math.abs(d.net))}</strong>
-              {inTotal > 0 && (
-                <span className={`cf-save-rate num ${d.net >= 0 ? 'pos' : 'over'}`}>
-                  {d.net >= 0 ? `${Math.round((d.net / inTotal) * 100)}% of income` : 'over income'}
-                </span>
+            </>
+          ) : hasActivity ? (
+            <>
+              {/* No budgets set: the net is the hero, with the same anatomy. */}
+              <span className={`hero-state ${d.net >= 0 ? 'ok' : 'over'}`}>{d.net >= 0 ? SAVED : OVERSPENT}</span>
+              <div className="hero-fig">
+                <Money value={Math.abs(d.net)} />
+              </div>
+              {d.net >= 0 && inTotal > 0 && (
+                <span className="hero-caption num">{pct((d.net / inTotal) * 100)} of income</span>
               )}
-            </span>
+            </>
+          ) : (
+            <span className="hero-state">Nothing yet this month</span>
+          )}
+
+          {/* The contributors that explain the hero. */}
+          <div className="cf-flows">
+            <div className="cf-flow">
+              <div className="cf-flow-top">
+                <span className="cf-flow-label">{INCOME}</span>
+                <span className="cf-flow-amt num">{money(inTotal)}</span>
+              </div>
+              <div className="cf-bar">
+                <div className="cf-bar-fill in rail-fill" style={railP(inTotal / flowMax)} />
+              </div>
+            </div>
+            <div className="cf-flow">
+              <div className="cf-flow-top">
+                <span className="cf-flow-label">{SPENDING}</span>
+                <span className="cf-flow-amt num">{money(outTotal)}</span>
+              </div>
+              <div className="cf-bar">
+                <div className={`cf-bar-fill out rail-fill${overIncome ? ' over' : ''}`} style={railP(outTotal / flowMax)} />
+              </div>
+            </div>
+            {hasBudget && hasActivity && (
+              <div className="home-net">
+                <span className="home-net-label">{d.net >= 0 ? `${SAVED} so far` : `${OVERSPENT} so far`}</span>
+                <span className={`home-net-fig num ${d.net >= 0 ? 'pos' : 'over'}`}>
+                  {money(Math.abs(d.net))}
+                  {d.net >= 0 && inTotal > 0 && <em> · {pct((d.net / inTotal) * 100)} of income</em>}
+                </span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </section>
 
-      {/* Needs attention — the only list that's always visible. */}
-      <div className="card-sect">
-        <div className="sect-row"><span className="sect-title">Needs your eye</span></div>
-        {/* Living above your means outranks any single category being over, and
-            it is invisible to the per-category checks — `attention` only reads
-            budgets. Without this the card said "nothing needs you" in a month
-            that spent more than it earned. */}
-        {overIncome && (
-          <div className="allgood overflow-note">
-            <Icon name="alert" size={15} />
-            <span>
-              {money(outTotal - inTotal)} more has gone out than come in so far this month.
-              {d.totalBudget > inTotal && <> Your budgets total {money(d.totalBudget)}, more than this month&rsquo;s income.</>}
-            </span>
+        {/* Needs your eye: the only list that is always visible. */}
+        <section className="sect enter">
+          <div className="sect-row">
+            <h2 className="sect-title">Needs your eye</h2>
           </div>
-        )}
-        {attention.length > 0 ? (
-          <ul className="traj">{attention.map(renderRow)}</ul>
-        ) : (
-          !overIncome && <div className="allgood"><Icon name="sparkles" size={15} /> All budgets on track — nothing needs you.</div>
-        )}
-      </div>
+          {overIncome || attention.length > 0 ? (
+            <ul className="home-list">
+              {/* Living above your means outranks any single category being over,
+                  and it is invisible to the per-category checks, which only read
+                  budgets. Without it the list said "nothing needs you" in a month
+                  that spent more than it earned. */}
+              {overIncome && (
+                <li className="row-sep">
+                  <div className={`traj-row home-row${d.totalBudget > inTotal ? '' : ' is-short'}`}>
+                    <span className="cat-tile over">
+                      <Icon name="alert" size={18} />
+                    </span>
+                    <span className="traj-main">
+                      <span className="traj-name">
+                        {d.totalBudget > inTotal ? 'Budgets exceed income' : 'Spending is ahead of income'}
+                      </span>
+                      {d.totalBudget > inTotal && (
+                        <span className="traj-meta muted">
+                          <strong className="num">{money(d.totalBudget, { trim: true })}</strong> budgeted ·{' '}
+                          <strong className="num">{money(inTotal)}</strong> in so far
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </li>
+              )}
+              {attention.map(renderAttention)}
+            </ul>
+          ) : (
+            <div className="allgood">
+              <Icon name="check" size={16} /> All budgets on track. Nothing needs you.
+            </div>
+          )}
+        </section>
 
-      <button className="detail-toggle" onClick={toggleDetail}>
-        <Icon name="chart" size={15} /> {showDetail ? 'Hide charts' : 'Show charts'}
-      </button>
+        {/* Today */}
+        {todays.length > 0 && (
+          <section className="sect enter">
+            <div className="sect-row">
+              <h2 className="sect-title">Today</h2>
+            </div>
+            <ul className="txn-list">
+              {todays.map((t) => {
+                const cat = t.categoryId != null ? catById.get(t.categoryId) : undefined
+                const income = t.type === 'income'
+                return (
+                  <li key={t.id} className="txn-row" {...pressable(() => onEdit(t))}>
+                    <span className="cat-tile">
+                      <Icon name={cat?.icon ?? 'tag'} size={18} />
+                    </span>
+                    <span className="txn-main">
+                      <span className="txn-note">{cleanMerchant(t.note || '') || cat?.name || 'Uncategorized'}</span>
+                      <span className="txn-sub">
+                        {t.pending && <Pending />}
+                        {cat?.name ?? 'Uncategorized'}
+                      </span>
+                    </span>
+                    <span className={`txn-amt num${income ? ' pos' : ''}`}>
+                      {income ? '+' : ''}
+                      {money(t.amount)}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
 
-      {/* Day by day */}
-      {showDetail && (
-      <div className="card-sect">
-        <div className="sect-row">
-          <span className="sect-title">Day by day</span>
-          <span className="sect-note num">~{money(d.avgPerDay, { approx: true })}/day</span>
-        </div>
-        <div className="daily">
-          {d.daily.map((amt, i) => {
-            // Bars are DIRECT flex children with explicit px heights — the
-            // wrapper-column + percentage-height version misrendered in WebKit
-            // (iOS painted every bar full-size).
-            const h = Math.max(2, Math.round((amt / d.maxDaily) * 64))
-            const isToday = i + 1 === dayOfMonth
-            return (
-              <div
-                key={i}
-                // "zero", not "empty" — .empty is the app's padded empty-state
-                // message class and inflates the bar to 48×104.
-                className={`daily-bar ${isToday ? 'today' : ''} ${amt === 0 ? 'zero' : ''}`}
-                style={{ height: `${h}px` }}
-                title={`Day ${i + 1}: ${money(amt)}`}
-              />
-            )
-          })}
-        </div>
-        <div className="daily-axis"><span>1</span><span>{Math.ceil(daysInMonth / 2)}</span><span>{daysInMonth}</span></div>
-      </div>
-      )}
+        <button
+          type="button"
+          className="home-disclose row-press"
+          data-testid="home-detail-toggle"
+          aria-expanded={showDetail}
+          onClick={toggleDetail}
+        >
+          <span>{showDetail ? 'Hide charts' : 'Show charts'}</span>
+          <Icon name="chevron" size={14} className={`chev${showDetail ? ' open' : ''}`} />
+        </button>
+
+        {/* Day by day */}
+        {detail && (
+          <section className="sect enter">
+            <div className="sect-row">
+              <h2 className="sect-title">Day by day</h2>
+              <span className="sect-note num">~{money(d.avgPerDay, { approx: true })}/day</span>
+            </div>
+            <div className="daily">
+              {d.daily.map((amt, i) => {
+                // Bars are DIRECT flex children with explicit px heights: the
+                // wrapper-column + percentage-height version misrendered in WebKit
+                // (iOS painted every bar full-size).
+                const h = Math.max(2, Math.round((amt / d.maxDaily) * 64))
+                const isToday = i + 1 === dayOfMonth
+                return (
+                  <div
+                    key={i}
+                    // "zero", not "empty": .empty is the app's padded empty-state
+                    // message class and inflates the bar to 48×104.
+                    className={`daily-bar${isToday ? ' today' : ''}${amt === 0 ? ' zero' : ''}`}
+                    style={{ height: `${h}px` }}
+                    title={`Day ${i + 1}: ${money(amt)}`}
+                  />
+                )
+              })}
+            </div>
+            <div className="daily-axis">
+              <span>1</span>
+              <span>{Math.ceil(daysInMonth / 2)}</span>
+              <span>{daysInMonth}</span>
+            </div>
+          </section>
+        )}
       </div>
 
       <div className="dash-col">
-      {/* Budgets + trajectory */}
-      {showDetail && (
-      <div className="card-sect">
-        <div className="sect-row">
-          <span className="sect-title">Budgets</span>
-          <span className="sect-note">
-            {d.totalBudget > 0 ? (
-              d.canProject ? (
-                <>expecting ~<strong className="num">{money(d.projectedTotal, { approx: true })}</strong> of {money(d.totalBudget)}</>
-              ) : (
-                <><strong className="num">{money(d.spend)}</strong> of {money(d.totalBudget)}</>
-              )
-            ) : (
-              'set limits below'
-            )}
-          </span>
-        </div>
-        <ul className="traj">
-          {d.rows.filter((r) => r.spent > 0).map(renderRow)}
-          {d.rows.filter((r) => r.spent > 0).length === 0 && (
-            <li className="traj-empty">Nothing spent yet this month.</li>
-          )}
-        </ul>
-        {/* Untouched budgets stay out of the way — one quiet line instead of a
-            wall of $0.00 rows. The full list always lives in the Budget tab. */}
-        {(() => {
-          const quiet = d.rows.filter((r) => r.spent === 0 && r.budget > 0)
-          if (quiet.length === 0) return null
-          const names = quiet.map((r) => r.name)
-          const listed = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3} more` : names.join(', ')
-          const ready = quiet.reduce((s, r) => s + r.budget, 0)
-          return (
-            <div className="traj-quiet">
-              Nothing yet in {listed} · {money(ready)} ready
+        {/* Budgets + trajectory */}
+        {detail && (
+          <section className="sect enter">
+            <div className="sect-row">
+              <h2 className="sect-title">Budgets</h2>
+              <span className="sect-note">
+                {spentRows.length} active{quiet.length > 0 && ` · ${quiet.length} untouched`}
+              </span>
             </div>
-          )
-        })()}
-      </div>
-      )}
+            <ul className="home-list">
+              {spentRows.map(renderBudget)}
+              {spentRows.length === 0 && <li className="traj-empty">Nothing spent yet this month.</li>}
+            </ul>
+            {/* Untouched budgets stay out of the way: one quiet line instead of a
+                wall of $0.00 rows. The full list always lives in the Budget tab. */}
+            {quietLine && <div className="traj-quiet num">{quietLine}</div>}
+            <button type="button" className="home-link row-press" onClick={onMore}>
+              <span>See all budgets</span>
+              <Icon name="chevron" size={14} className="chev" />
+            </button>
+          </section>
+        )}
 
-      {/* Recurring bills */}
-      {showDetail && bills.length > 0 && (
-        <div className="card-sect">
-          <div className="sect-row"><span className="sect-title">Recurring bills</span></div>
-          <ul className="bills">
-            {bills.map((b) => {
-              const cat = b.catId != null ? catById.get(b.catId) : undefined
-              return (
-                <li key={b.name} className="bill-row">
-                  <span className="cat-tile sm"><Icon name={cat?.icon ?? 'repeat'} size={16} /></span>
-                  <div className="bill-main">
-                    <span className="bill-name">{b.name}</span>
-                    <span className="bill-sub">{cat?.name ?? 'Bill'} · recurring</span>
-                  </div>
-                  <span className="bill-amt num">{money(b.last)}</span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
-      {/* Today */}
-      {todays.length > 0 && (
-        <div className="card-sect">
-          <div className="sect-row"><span className="sect-title">Today</span></div>
-          <ul className="txn-list">
-            {todays.map((t) => {
-              const cat = t.categoryId != null ? catById.get(t.categoryId) : undefined
-              return (
-                <li key={t.id} className="txn-row" onClick={() => onEdit(t)}>
-                  <span className="cat-tile sm"><Icon name={cat?.icon ?? 'tag'} size={18} /></span>
-                  <span className="txn-main">
-                    <span className="txn-note">{t.note || cat?.name || 'Uncategorized'}</span>
-                    <span className="txn-sub">{cat?.name ?? 'Uncategorized'}</span>
-                  </span>
-                  <span className={`txn-amt num ${t.type === 'income' ? 'pos' : ''}`}>
-                    {t.type === 'income' ? '+' : '−'}{money(t.amount)}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
-      <button className="home-more" onClick={onMore}>
-        <Icon name="pie" size={15} /> Full budget &amp; activity
-      </button>
+        {/* Recurring bills */}
+        {detail && bills.length > 0 && (
+          <section className="sect enter">
+            <div className="sect-row">
+              <h2 className="sect-title">Recurring</h2>
+            </div>
+            <ul className="home-list">
+              {bills.map((b) => {
+                const cat = b.catId != null ? catById.get(b.catId) : undefined
+                return (
+                  <li key={b.name} className="row-sep bill-row">
+                    <span className="cat-tile">
+                      <Icon name={cat?.icon ?? 'repeat'} size={18} />
+                    </span>
+                    <div className="bill-main">
+                      <span className="bill-name">{b.name}</span>
+                      <span className="bill-sub">
+                        {cat?.name ?? 'Other'} · last {dayLabel(b.lastDate)}
+                      </span>
+                    </div>
+                    <span className="bill-amt num">{money(b.last)}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   )
-}
+})

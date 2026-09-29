@@ -1,0 +1,278 @@
+/* Categories ([data-screen="categories"]): the budgets total (.cats-sub), the
+   Spending and Income lists (.cats-card, .cat-row, .cat-summary, .cat-name,
+   .cat-budget, .cat-add), the inline editor (.cat-edit*, .money-input,
+   .icon-picker/.icon-opt) and its two-tap delete (.cat-danger, .cat-delete*).
+   Rows take .row-sep/.row-press and the chevron takes .chev from primitives.
+   @layer screens. Owner: S2-categories. */
+
+@layer screens {
+  /* ---- The one line above the lists: what the budgets add up to ---------- */
+  .cats-sub {
+    margin: 0;
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  .cats-sub strong {
+    color: var(--text-1);
+  }
+
+  /* Eyebrows sit on the list's content edge (the gate's tint variant pads it). */
+  .cats .section-title {
+    padding-inline: var(--group-pad);
+  }
+
+  /* Dissolved: the Quiet list (no card, no blur, no elevation). */
+  .cats-card {
+    padding: 0 var(--group-pad);
+    border: 0;
+    border-radius: var(--r-lg);
+    background: var(--group-bg);
+    box-shadow: none;
+  }
+
+  /* ---- Rows: glyph | name | budget | chevron, 48pt, inset hairlines ------ */
+  .cat-row {
+    position: relative; /* anchors the .row-sep hairline */
+  }
+
+  .cat-summary {
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr) auto 14px;
+    column-gap: var(--glyph-gap);
+    align-items: center;
+    width: 100%;
+    min-height: var(--row-1);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+  }
+
+  .cat-name {
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .cat-budget {
+    font-size: var(--fs-row);
+    line-height: 1.3;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  .cat-budget em {
+    margin-left: 1px;
+    font-size: var(--fs-meta);
+    font-style: normal;
+    color: var(--text-3);
+  }
+
+  .cat-budget.is-none {
+    font-size: var(--fs-meta);
+    color: var(--text-3);
+  }
+
+  /* The last row of each list: add, in the accent, on the glyph column. */
+  .cat-add {
+    display: grid;
+    grid-template-columns: var(--glyph) minmax(0, 1fr);
+    column-gap: var(--glyph-gap);
+    align-items: center;
+    justify-items: start;
+    width: 100%;
+    min-height: var(--row-1);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    text-align: left;
+  }
+
+  .cat-add svg {
+    justify-self: center;
+  }
+
+  /* ---- Editor: opens under its row, one at a time ------------------------ */
+  .cat-edit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-4);
+    padding: var(--s-1) 0 var(--s-4);
+  }
+
+  /* Plays when the editor opens (the class is dropped once it has played). */
+  .cat-edit-in {
+    animation: catEditIn var(--dur-3) var(--ease-out) backwards;
+  }
+
+  @keyframes catEditIn {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+  }
+
+  .cat-edit-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: var(--s-3);
+  }
+
+  /* Income categories have no budget: the name takes the whole line. */
+  .cat-edit-grid > :only-child {
+    grid-column: 1 / -1;
+  }
+
+  /* Monthly budget: '$' before and '/mo' after the figure, inside the field
+     (both follow the input in the markup so an empty field can hide them). */
+  .money-input {
+    position: relative;
+  }
+
+  .money-input i,
+  .money-input em {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    font-style: normal;
+    color: var(--text-3);
+    opacity: 1;
+    pointer-events: none;
+  }
+
+  .money-input i {
+    left: var(--s-3);
+    font-size: var(--fs-input);
+  }
+
+  .money-input em {
+    right: var(--s-3);
+    font-size: var(--fs-meta);
+  }
+
+  /* The figure starts right after the '$' (about 0.6em wide at input size). */
+  .money-input input {
+    padding-right: var(--s-10);
+    padding-left: calc(var(--s-3) + 0.62em);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Empty and at rest: the placeholder ('No budget') stands alone. Focused,
+     the '$' and '/mo' frame the caret and the placeholder steps aside. */
+  .money-input input:placeholder-shown:not(:focus) {
+    padding-left: var(--s-3);
+  }
+
+  .money-input input:placeholder-shown:not(:focus) ~ i,
+  .money-input input:placeholder-shown:not(:focus) ~ em {
+    visibility: hidden;
+  }
+
+  .money-input input:focus::placeholder {
+    color: transparent;
+  }
+
+  /* Icon picker: plain glyphs on an even grid (seven across, so the 28 fill
+     four full rows; fewer only if a column would drop under 44pt), 44pt
+     targets, one tinted choice. */
+  .icon-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--hit), 1fr));
+    /* 44 = --hit and 24 = the six --s-1 gaps, written out so an engine without
+       max() in a track size drops this line at parse time and keeps the one
+       above (a var() here would only fail later, as 'none'). */
+    grid-template-columns: repeat(auto-fill, minmax(max(44px, calc((100% - 24px) / 7)), 1fr));
+    gap: var(--s-1);
+  }
+
+  .icon-opt {
+    display: grid;
+    place-items: center;
+    justify-self: center;
+    width: 100%;
+    max-width: calc(var(--hit) + var(--s-3));
+    height: var(--hit);
+    padding: 0;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text-2);
+    transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out),
+      box-shadow var(--dur-1) var(--ease-out);
+  }
+
+  .icon-opt:active {
+    background: var(--fill-press);
+  }
+
+  .icon-opt.on {
+    color: var(--accent);
+    background: var(--ok-tint);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+
+  /* ---- Delete: two taps, in place ---------------------------------------- */
+  .cat-danger {
+    display: flex;
+    flex-direction: column;
+    padding-top: var(--s-2);
+    border-top: var(--hairline-w) solid var(--hairline);
+  }
+
+  .cat-delete {
+    min-height: var(--hit);
+    padding: 0 var(--s-4);
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--over);
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+    transition: background-color var(--dur-1) var(--ease-out);
+  }
+
+  .cat-delete:active,
+  .cat-delete.is-armed {
+    background: var(--over-tint);
+  }
+
+  .cat-delete-note {
+    margin: var(--s-2) 0 0;
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+    text-align: center;
+    text-wrap: pretty;
+  }
+
+  @media (min-width: 920px) {
+    .cats {
+      max-width: 660px;
+      margin-inline: auto;
+    }
+    /* Seven 56pt cells, not seven stretched ones, on the wide column. */
+    .icon-picker {
+      max-width: calc(7 * (var(--hit) + var(--s-3)) + 6 * var(--s-1));
+    }
+  }
+}

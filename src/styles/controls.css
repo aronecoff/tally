@@ -1,0 +1,410 @@
+/* Controls: the primary button, the pill family (.detail-toggle, .btn-ghost),
+   chips, the segmented control, fields and grouped field lines, warnings and
+   the pending tag. Screen-specific buttons (danger, delete) live with their
+   screen or sheet.
+   Sizes: visual controls 28/36/48, every hit target at least 44.
+   @layer controls. Owner: S1A. */
+
+@layer controls {
+  /* ---- Buttons ----------------------------------------------------------- */
+  .btn-primary {
+    position: relative;
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-2);
+    height: var(--ctl-lg);
+    padding: 0 var(--s-5);
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--fs-row);
+    font-weight: var(--w-demi);
+    line-height: 1;
+    letter-spacing: -0.005em;
+    white-space: nowrap;
+    box-shadow: none;
+    transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out),
+      color var(--dur-1) var(--ease-out), transform var(--dur-2) var(--ease-out);
+  }
+
+  .btn-primary:active {
+    transform: scale(0.985);
+    transition-duration: var(--dur-press);
+  }
+
+  .btn-primary:disabled {
+    opacity: 1;
+    background: var(--fill);
+    border-color: transparent;
+    color: var(--text-3);
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* ---- Pills: 36 tall, 13/500, quiet fill, hit slop to 46 ----------------- */
+  .detail-toggle,
+  .btn-ghost {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--s-2);
+    height: var(--ctl-md);
+    padding: 0 var(--s-4);
+    border: 0;
+    border-radius: var(--r-pill);
+    background: var(--fill);
+    color: var(--text-2);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-medium);
+    line-height: 1;
+    letter-spacing: 0.005em;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+      transform var(--dur-2) var(--ease-out);
+  }
+
+  .detail-toggle::after,
+  .btn-ghost::after {
+    content: '';
+    position: absolute;
+    inset: -5px -3px;
+  }
+
+  .detail-toggle:active,
+  .btn-ghost:active {
+    transform: scale(var(--press-scale));
+    transition-duration: var(--dur-press);
+  }
+
+  /* A standalone secondary action sits centred between sections (the column
+     has no gap, so the margin carries the space on both sides). */
+  .detail-toggle {
+    display: flex;
+    margin: var(--s-4) auto;
+  }
+
+  .detail-toggle svg {
+    opacity: 0.8;
+  }
+
+  /* ---- Chips ------------------------------------------------------------- */
+  .chip-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+  }
+
+  .chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--ctl-md);
+    padding: 0 var(--s-4);
+    border: 1px solid transparent;
+    border-radius: var(--r-pill);
+    background: var(--fill);
+    color: var(--text-2);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-medium);
+    line-height: 1;
+    white-space: nowrap;
+    transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out),
+      color var(--dur-1) var(--ease-out), transform var(--dur-2) var(--ease-out);
+  }
+
+  .chip::after {
+    content: '';
+    position: absolute;
+    inset: -5px -3px;
+  }
+
+  .chip:active {
+    transform: scale(var(--press-scale));
+    transition-duration: var(--dur-press);
+  }
+
+  .chip .chip-ic {
+    color: var(--text-3);
+    display: grid;
+    place-items: center;
+  }
+
+  .chip.on {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--text-1);
+  }
+
+  .chip.on .chip-ic {
+    color: var(--accent);
+  }
+
+  /* ---- Segmented control: 32 tall, 28 buttons, one sliding thumb ---------- */
+  .seg {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    height: 32px;
+    padding: 2px;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--fill);
+  }
+
+  .seg button {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    height: var(--ctl-sm);
+    padding: 0;
+    border: 0;
+    border-radius: calc(var(--r-md) - 3px);
+    background: transparent;
+    color: var(--text-2);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-demi);
+    line-height: 1;
+    transition: color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+  }
+
+  /* Hit slop: the 32 seg reaches 44 without growing. */
+  .seg button::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+  }
+
+  /* Without :has() the selected option carries its own fill. */
+  .seg .seg-on {
+    background: var(--surface-3);
+    box-shadow: var(--elev-thumb);
+    color: var(--text-1);
+  }
+
+  @supports selector(:has(*)) {
+    .seg::before {
+      content: '';
+      position: absolute;
+      z-index: 0;
+      top: 2px;
+      bottom: 2px;
+      left: 2px;
+      width: calc((100% - 4px) / 2);
+      border-radius: calc(var(--r-md) - 3px);
+      background: var(--surface-3);
+      box-shadow: var(--elev-thumb);
+      pointer-events: none;
+      transition: transform var(--dur-3) var(--ease-spring); /* the ONLY spring in the app */
+    }
+    .seg:has(> button:nth-child(3))::before {
+      width: calc((100% - 4px) / 3);
+    }
+    .seg:has(> button:nth-child(2).seg-on)::before {
+      transform: translateX(100%);
+    }
+    .seg:has(> button:nth-child(3).seg-on)::before {
+      transform: translateX(200%);
+    }
+    .seg:not(:has(> .seg-on))::before {
+      opacity: 0;
+    }
+    .seg .seg-on {
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+
+  /* ---- Fields ------------------------------------------------------------ */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+    font-size: var(--fs-meta);
+  }
+
+  .field > span,
+  .field-sub {
+    font-size: var(--fs-micro);
+    font-weight: var(--w-demi);
+    line-height: 1.2;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .field-sub {
+    display: block;
+    margin-bottom: var(--s-2);
+  }
+
+  .field em {
+    font-style: normal;
+    font-weight: var(--w-regular);
+    opacity: 0.7;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .field input,
+  .field select,
+  .field textarea,
+  .field-line input {
+    width: 100%;
+    height: var(--ctl-lg);
+    padding: 0 var(--s-3);
+    font-size: var(--fs-input);
+    line-height: 1.25;
+    color: var(--text-1);
+    -webkit-appearance: none;
+    appearance: none;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    background: var(--fill);
+    transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+  }
+
+  .field textarea {
+    height: auto;
+    min-height: 74px;
+    padding: var(--s-3);
+    font-family: inherit;
+    line-height: 1.4;
+    resize: vertical;
+  }
+
+  /* A date input keeps the field height and reads left-aligned on iOS. */
+  .field input[type='date'] {
+    display: block;
+    min-width: 0;
+  }
+
+  .field input[type='date']::-webkit-date-and-time-value {
+    text-align: left;
+  }
+
+  /* appearance:none drops the native arrow, so draw a small chevron. */
+  .field select {
+    padding-right: var(--s-8);
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
+      linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 52%, calc(100% - 13px) 52%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+
+  .field input::placeholder,
+  .field textarea::placeholder,
+  .field-line input::placeholder {
+    color: var(--text-3);
+    opacity: 1;
+  }
+
+  .field input:focus,
+  .field select:focus,
+  .field textarea:focus,
+  .field-line input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* Grouped rows: cells sit above the sheet (surface-2), inset hairlines. */
+  .field-group {
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+    border: var(--hairline-w) solid var(--hairline);
+    overflow: hidden;
+  }
+
+  .field-line {
+    position: relative;
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    align-items: center;
+    gap: var(--s-3);
+    min-height: var(--row-1);
+    padding: 0 14px;
+    font-size: var(--fs-row);
+  }
+
+  .field-line + .field-line::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 14px;
+    right: 0;
+    border-top: var(--hairline-w) solid var(--hairline);
+  }
+
+  .field-group :is(input, select, textarea) {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    text-align: right;
+    text-align-last: right;
+  }
+
+  /* ---- Warnings ---------------------------------------------------------- */
+  .limit-warn {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-3);
+    border-radius: var(--r-md);
+    font-size: var(--fs-meta);
+    font-weight: var(--w-medium);
+    line-height: 1.35;
+    text-wrap: pretty;
+    margin-top: -4px;
+  }
+
+  .limit-warn.is-over {
+    background: var(--over-tint);
+    border: 1px solid color-mix(in srgb, var(--over-mark) 35%, transparent);
+    color: var(--over);
+  }
+
+  .limit-warn.is-near {
+    background: var(--near-tint);
+    border: 1px solid color-mix(in srgb, var(--near-mark) 30%, transparent);
+    color: var(--near);
+  }
+
+  /* ---- Pending: a quiet caps word, never a badge. The separator is markup
+     (<Pending/>), so text dumps read 'Pending · …'. ------------------------ */
+  .pending-chip {
+    display: inline;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: var(--w-demi) var(--fs-micro) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  .meta-sep {
+    color: var(--text-3);
+  }
+
+  /* ---- Hover: pointer devices only (no sticky iOS hover) ----------------- */
+  @media (hover: hover) and (pointer: fine) {
+    .detail-toggle:hover,
+    .btn-ghost:hover {
+      color: var(--text-1);
+      background: var(--fill-press);
+    }
+    .chip:hover:not(.on) {
+      background: var(--fill-press);
+    }
+  }
+}

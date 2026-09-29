@@ -1,0 +1,161 @@
+/* PARKED: styles for src/components/ImportCsv.tsx (the CSV import screen), which
+   is not mounted anywhere. This file is NOT imported; bring it back with the
+   component. Moved out of index.css by P0 (stage 0); S3-cleanup rewrote its
+   temporary-alias uses to the canonical tokens (the aliases are gone). */
+
+.preview-list {
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  box-shadow: none;
+}
+
+.csv-paste {
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  border-radius: 11px;
+  padding: 12px 13px;
+  font-size: 15px;
+  width: 100%;
+  transition: border-color 0.12s;
+}
+
+.csv-paste:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.import-intro {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  margin: 4px 0 16px;
+}
+
+.import-inputs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.file-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 11px;
+  padding: 10px 15px;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 6px 16px rgba(143, 160, 131, 0.28);
+}
+
+.csv-paste {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.col-map {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.col-map-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.col-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-map-row select {
+  width: 150px;
+  background: var(--fill);
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  padding: 8px 9px;
+  font-size: 13px;
+}
+
+.sign-seg {
+  margin-top: 12px;
+}
+
+.sign-seg button {
+  font-size: 12.5px;
+}
+
+.preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.preview-row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 14px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.preview-row:last-child {
+  border-bottom: none;
+}
+
+.preview-note {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.preview-more {
+  padding: 11px 14px;
+  font-size: 12px;
+}
+
+.import-done {
+  text-align: center;
+  padding: 40px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.big-check {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--fill-press);
+  border: 1px solid var(--hairline);
+  color: var(--ok);
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+}
+
+@media (min-width: 920px) {
+  .import {
+    max-width: 760px;
+  }
+}
+
+.preview-list {
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  box-shadow: none;
+}

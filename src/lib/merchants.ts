@@ -65,6 +65,51 @@ export function cleanMerchant(raw: string): string {
   return s
 }
 
+/**
+ * Split a trailing card/account mask off a bank string:
+ * 'Citizens Bank Checking Account (4821)' → { base: 'Citizens Bank Checking Account', last4: '4821' }.
+ * DISPLAY ONLY: the stored account string is never modified.
+ */
+export function splitMask(s: string): { base: string; last4: string | null } {
+  const m = s.match(/^(.*?)\s*\((\d{4})\)\s*$/)
+  return m ? { base: m[1].trim(), last4: m[2] } : { base: s.trim(), last4: null }
+}
+
+// Long issuer names as banks send them → the short name people use.
+const ISSUER: [RegExp, string][] = [
+  [/^american express\b/i, 'Amex'],
+  [/^citizens bank\b/i, 'Citizens'],
+  [/^chase bank\b/i, 'Chase'],
+  [/^charles schwab\b/i, 'Schwab'],
+]
+// Words that carry no identity once the issuer is known.
+const FILLER = /\b(private bank|bank|account|rewards|visa signature|signature|card|high yield)\b/gi
+
+/**
+ * A readable account label for row meta lines, e.g.
+ * 'American Express American Express Green Card (6152)' → { label: 'Amex Green', mask: '6152' }.
+ * Maps the issuer to its short name, strips a duplicated lead issuer and filler
+ * words, and moves a trailing (dddd) into `mask`. Unknown strings pass through
+ * (minus the mask). DISPLAY ONLY: never write the result back to a transaction.
+ */
+export function accountLabel(raw: string): { label: string; mask: string | null } {
+  const { base, last4 } = splitMask(raw ?? '')
+  if (!base) return { label: '', mask: last4 }
+  const tidy = (s: string) => s.replace(/\s{2,}/g, ' ').trim()
+  for (const [long, short] of ISSUER) {
+    if (!long.test(base)) continue
+    let rest = base.replace(long, '').trim()
+    // "Chase Bank Chase Freedom…" / "American Express American Express Green…"
+    const dupLong = new RegExp(`^${long.source.slice(1)}`, 'i')
+    const dupShort = new RegExp(`^${short}\\b`, 'i')
+    rest = rest.replace(dupLong, '').trim().replace(dupShort, '').trim()
+    rest = tidy(rest.replace(FILLER, ' '))
+    return { label: rest ? `${short} ${rest}` : short, mask: last4 }
+  }
+  const cleaned = tidy(base.replace(FILLER, ' '))
+  return { label: cleaned || base, mask: last4 }
+}
+
 export interface MerchantInfo {
   /** Human display name (brand name when recognized, cleaned descriptor otherwise). */
   name: string

@@ -1,37 +1,88 @@
-import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { subscribeSync, signIn, signOutSync, syncNow, changePassword, type SyncSnapshot } from '../sync/sync'
 import { supabase } from '../db/supabase'
+import { banksEnabled } from '../lib/banks'
+import { ago } from '../lib/dates'
+import type { ThemePref } from '../lib/useTheme'
 import { Icon } from './Icon'
+import { Sheet, useSheetClose } from './Sheet'
 
-function timeAgo(ms: number): string {
-  const s = Math.round((Date.now() - ms) / 1000)
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  return `${Math.floor(s / 3600)}h ago`
+interface Props {
+  onClose: () => void
+  pref: ThemePref
+  setPref: (p: ThemePref) => void
+  /** Show Categories (runs after the sheet has closed). */
+  onCategories: () => void
+  /** Show Accounts with the bank sheet open (runs after the sheet has closed). */
+  onBankConnections: () => void
 }
 
-export function Account() {
+/**
+ * Settings: sync (sign in, status, change password, sign out), appearance, and
+ * the two setup screens. It always renders, even without sync configured,
+ * because Appearance still applies. The navigation rows close the sheet first
+ * and navigate from its onClose, so two sheets are never open at once.
+ */
+export function Account({ onClose, pref, setPref, onCategories, onBankConnections }: Props) {
+  const after = useRef<(() => void) | null>(null)
+  return (
+    <Sheet
+      kind="settings"
+      title="Settings"
+      onClose={() => {
+        const next = after.current
+        after.current = null
+        onClose()
+        next?.()
+      }}
+    >
+      <SettingsBody
+        pref={pref}
+        setPref={setPref}
+        after={after}
+        onCategories={onCategories}
+        onBankConnections={onBankConnections}
+      />
+    </Sheet>
+  )
+}
+
+const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
+interface BodyProps extends Omit<Props, 'onClose'> {
+  after: RefObject<(() => void) | null>
+}
+
+function SettingsBody({ pref, setPref, after, onCategories, onBankConnections }: BodyProps) {
+  const close = useSheetClose()
   const [snap, setSnap] = useState<SyncSnapshot | null>(null)
-  const [open, setOpen] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [pwOpen, setPwOpen] = useState(false)
   const [newPw, setNewPw] = useState('')
-  const [pwMsg, setPwMsg] = useState<string | null>(null)
+  const [pwBusy, setPwBusy] = useState(false)
+  const [pwMsg, setPwMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  // Re-render every 30s so 'Synced 3m ago' stays true while the sheet is open.
+  const [, setTick] = useState(0)
 
   useEffect(() => subscribeSync(setSnap), [])
-
-  if (!supabase) return null // sync not configured
+  useEffect(() => {
+    const iv = window.setInterval(() => setTick((t) => t + 1), 30_000)
+    return () => window.clearInterval(iv)
+  }, [])
 
   const signedIn = !!snap?.email
+  const syncAvailable = !!supabase || signedIn
   const status = snap?.status ?? 'signedout'
-  const dotColor = status === 'error' ? 'var(--over)' : signedIn ? 'var(--pos)' : 'var(--muted)'
 
   async function submit() {
-    if (!email || !password) return
+    if (!email || !password || busy) return
     setBusy(true)
     setErr(null)
     const e = await signIn(email.trim(), password)
@@ -40,126 +91,192 @@ export function Account() {
     else setPassword('')
   }
 
+  async function savePassword() {
+    if (pwBusy) return
+    setPwBusy(true)
+    const e = await changePassword(newPw)
+    setPwBusy(false)
+    setPwMsg(e ? { text: e, ok: false } : { text: 'Password updated.', ok: true })
+    if (!e) {
+      setNewPw('')
+      window.setTimeout(() => setPwOpen(false), 1200)
+    }
+  }
+
+  const go = (next: () => void) => {
+    after.current = next
+    close()
+  }
+
+  const statusLine =
+    status === 'syncing'
+      ? 'Syncing…'
+      : status === 'error'
+        ? 'Sync paused. Retrying automatically.'
+        : snap?.lastSyncedAt
+          ? `Synced ${ago(snap.lastSyncedAt)}`
+          : 'Connected'
+
+  const appearance = (
+    <>
+      <span className="sheet-label" id="settings-appearance">Appearance</span>
+      <div className="seg" role="group" aria-labelledby="settings-appearance">
+        {THEME_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            className={pref === o.value ? 'seg-on' : ''}
+            aria-pressed={pref === o.value}
+            onClick={() => setPref(o.value)}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </>
+  )
+
+  const screens = (
+    <div className="sheet-group">
+      <button type="button" className="sheet-row" onClick={() => go(onCategories)}>
+        <Icon name="tag" size={18} />
+        <span>Categories &amp; budgets</span>
+        <Icon name="chevron" size={14} className="chev" />
+      </button>
+      {banksEnabled && (
+        <button type="button" className="sheet-row" onClick={() => go(onBankConnections)}>
+          <Icon name="bank" size={18} />
+          <span>Bank connections</span>
+          <Icon name="chevron" size={14} className="chev" />
+        </button>
+      )}
+    </div>
+  )
+
+  if (signedIn) {
+    return (
+      <>
+        <div className="sync-id">
+          <Icon name="cloud" size={20} />
+          <span className="sync-email">{snap?.email}</span>
+          <span
+            className={`sync-sub${status === 'error' ? ' is-err' : ''}`}
+            title={status === 'error' ? (snap?.error ?? undefined) : undefined}
+          >
+            {statusLine}
+          </span>
+        </div>
+
+        <div className="sheet-group">
+          <button type="button" className="sheet-row" onClick={() => void syncNow()} disabled={status === 'syncing'}>
+            <Icon name="repeat" size={18} />
+            <span>Sync now</span>
+            <span />
+          </button>
+          <button
+            type="button"
+            className="sheet-row"
+            aria-expanded={pwOpen}
+            onClick={() => {
+              setPwOpen((o) => !o)
+              setPwMsg(null)
+            }}
+          >
+            <Icon name="lock" size={18} />
+            <span>Change password</span>
+            <Icon name="chevron" size={14} className={`chev${pwOpen ? ' open' : ''}`} />
+          </button>
+          {pwOpen && (
+            <div className="sheet-reveal">
+              <label className="field">
+                <span>New password</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  enterKeyHint="done"
+                  value={newPw}
+                  placeholder="At least 8 characters"
+                  onChange={(e) => setNewPw(e.target.value)}
+                />
+              </label>
+              {pwMsg && <p className={pwMsg.ok ? 'sheet-ok' : 'sheet-err'}>{pwMsg.text}</p>}
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={newPw.length < 8 || pwBusy}
+                onClick={() => void savePassword()}
+              >
+                Save password
+              </button>
+            </div>
+          )}
+        </div>
+
+        {appearance}
+        {screens}
+
+        <button
+          type="button"
+          className="sheet-signout"
+          onClick={async () => {
+            await signOutSync()
+            close()
+          }}
+        >
+          Sign out
+        </button>
+      </>
+    )
+  }
+
   return (
     <>
-      <button
-        className="theme-toggle account-btn"
-        onClick={() => setOpen(true)}
-        aria-label="Account and sync"
-        title={signedIn ? `Synced · ${snap?.email}` : 'Sign in to sync'}
-      >
-        <Icon name="cloud" size={18} />
-        <span className="account-dot" style={{ background: dotColor }} />
-      </button>
+      {syncAvailable && (
+        <form
+          className="sheet-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void submit()
+          }}
+        >
+          <p className="sheet-note">
+            One ledger on every device. Sign in with the same email and password everywhere. The first sign-in
+            creates the account.
+          </p>
+          <label className="field">
+            <span>Email</span>
+            <input
+              type="email"
+              autoComplete="username"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="next"
+              placeholder="name@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Password</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              enterKeyHint="go"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+          {err && <div className="limit-warn is-over">{err}</div>}
+          <button type="submit" className="btn-primary" disabled={busy || !email || !password}>
+            {busy ? 'Signing in…' : 'Continue'}
+          </button>
+        </form>
+      )}
 
-      {open &&
-        createPortal(
-          <div className="sheet-backdrop" onClick={() => setOpen(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-grab" />
-            <div className="sheet-head">
-              <h2>{signedIn ? 'Sync' : 'Sign in to sync'}</h2>
-              <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close">✕</button>
-            </div>
-
-            {signedIn ? (
-              <>
-                <p className="account-info">
-                  Signed in as <strong>{snap?.email}</strong>
-                </p>
-                <p className="muted">
-                  {status === 'syncing'
-                    ? 'Syncing…'
-                    : status === 'error'
-                      ? `Sync error: ${snap?.error}`
-                      : snap?.lastSyncedAt
-                        ? `Last synced ${timeAgo(snap.lastSyncedAt)}`
-                        : 'Connected'}
-                </p>
-                <div className="sheet-actions">
-                  <button className="btn-ghost" onClick={() => void syncNow()}>Sync now</button>
-                  <button
-                    className="btn-primary"
-                    onClick={async () => {
-                      await signOutSync()
-                      setOpen(false)
-                    }}
-                  >
-                    Sign out
-                  </button>
-                </div>
-
-                {pwOpen ? (
-                  <div className="pw-change">
-                    <label className="field">
-                      <span>New password</span>
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        value={newPw}
-                        placeholder="At least 8 characters"
-                        onChange={(e) => setNewPw(e.target.value)}
-                      />
-                    </label>
-                    {pwMsg && <div className={`limit-warn ${/updated/i.test(pwMsg) ? '' : 'is-over'}`}>{pwMsg}</div>}
-                    <div className="sheet-actions">
-                      <button className="btn-ghost" onClick={() => { setPwOpen(false); setNewPw(''); setPwMsg(null) }}>Cancel</button>
-                      <button
-                        className="btn-primary"
-                        disabled={newPw.length < 8}
-                        onClick={async () => {
-                          const e = await changePassword(newPw)
-                          setPwMsg(e ?? 'Password updated ✓')
-                          if (!e) { setNewPw(''); setTimeout(() => setPwOpen(false), 1200) }
-                        }}
-                      >
-                        Save password
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button className="btn-danger-ghost" onClick={() => setPwOpen(true)}>Change password…</button>
-                )}
-              </>
-            ) : (
-              <>
-                <p className="account-info muted">
-                  Use the same email + password on every device — your phone, this app, and your
-                  browser stay in one ledger. First time creates your account.
-                </p>
-                <label className="field">
-                  <span>Email</span>
-                  <input
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@email.com"
-                  />
-                </label>
-                <label className="field">
-                  <span>Password</span>
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    onKeyDown={(e) => e.key === 'Enter' && submit()}
-                  />
-                </label>
-                {err && <div className="limit-warn is-over">{err}</div>}
-                <div className="sheet-actions">
-                  <button className="btn-primary" disabled={busy || !email || !password} onClick={submit}>
-                    {busy ? 'Working…' : 'Continue'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>,
-          document.body,
-        )}
+      {appearance}
+      {screens}
     </>
   )
 }
