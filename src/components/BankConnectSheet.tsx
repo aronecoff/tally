@@ -103,7 +103,7 @@ function BankConnectForm({ onResult }: Pick<Props, 'onResult'>) {
           <a className="connect-steps-link" href="https://bridge.simplefin.org/" target="_blank" rel="noopener noreferrer">
             <span className="connect-steps-n">1</span>
             <span className="connect-steps-text">Open SimpleFIN</span>
-            <Icon name="chevron" size={13} className="chev" />
+            <Icon name="chevron" size={14} className="chev" />
           </a>
         </li>
         <li>

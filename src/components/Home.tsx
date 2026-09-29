@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { memo, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { currentMonth, todayISO, monthShortLabel, dayLabel } from '../lib/dates'
@@ -12,6 +12,7 @@ import { Money } from './Money'
 import { Pending } from './Pending'
 import { Skeleton } from './Skeleton'
 import { pressable } from '../lib/pressable'
+import { useSettle } from '../lib/motion'
 
 interface Props {
   categories: Category[]
@@ -235,6 +236,10 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   const wide = useSyncExternalStore(subscribeWide, getWide, getWideServer)
   const detail = showDetail || wide
 
+  // The hero figure settles when it changes (a sync landing, an edit).
+  const heroRef = useRef<HTMLElement>(null)
+  useSettle(heroRef, '.hero-fig')
+
   // Every hook sits above this line: the skeleton return keeps hook order stable.
   if (monthTxns === undefined || recentTxns === undefined) return <Skeleton variant="home" />
 
@@ -372,7 +377,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     <div className={`dash-home${detail ? '' : ' is-calm'}`}>
       <div className="dash-col">
         {/* The one hero: budget state, what is left (or over), the rail. */}
-        <section className="sect home-hero enter">
+        <section className="sect home-hero enter" ref={heroRef}>
           <span className="hero-label">{heroLabel}</span>
           {hasBudget ? (
             <>
@@ -470,7 +475,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
                       {d.totalBudget > inTotal && (
                         <span className="traj-meta muted">
                           <strong className="num">{money(d.totalBudget, { trim: true })}</strong> budgeted ·{' '}
-                          <strong className="num">{money(inTotal)}</strong> in so far
+                          <strong className="num">{money(inTotal)}</strong> income so far
                         </span>
                       )}
                     </span>
@@ -521,7 +526,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
 
         <button
           type="button"
-          className="home-disclose row-press"
+          className="home-disclose row-press enter"
           data-testid="home-detail-toggle"
           aria-expanded={showDetail}
           onClick={toggleDetail}
@@ -537,7 +542,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
               <h2 className="sect-title">Day by day</h2>
               <span className="sect-note num">~{money(d.avgPerDay, { approx: true })}/day</span>
             </div>
-            <div className="daily">
+            <div className="daily" role="img" aria-label={`Spending by day, about ${money(d.avgPerDay, { approx: true })} a day`}>
               {d.daily.map((amt, i) => {
                 // Bars are DIRECT flex children with explicit px heights: the
                 // wrapper-column + percentage-height version misrendered in WebKit

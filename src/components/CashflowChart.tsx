@@ -1,6 +1,7 @@
-import { useState, type CSSProperties } from 'react'
+import { useRef, useState, type CSSProperties } from 'react'
 import { money } from '../lib/format'
 import { monthLabel } from '../lib/dates'
+import { useSettle } from '../lib/motion'
 
 export interface MonthPoint {
   m: string // YYYY-MM
@@ -52,6 +53,9 @@ function netLabel(net: number, compact: boolean): string {
  */
 export function CashflowChart({ months, focus }: Props) {
   const [sel, setSel] = useState<string | null>(null)
+  // The readout settles when the month it describes changes (a column tap).
+  const ref = useRef<HTMLDivElement>(null)
+  useSettle(ref, '.cfc-readout', sel ?? focus)
   if (months.length === 0) return null
 
   const max = Math.max(1, ...months.flatMap((p) => [p.income, p.spend]))
@@ -61,7 +65,7 @@ export function CashflowChart({ months, focus }: Props) {
   const anyFlagged = months.some((p) => p.partial || p.sparse)
 
   return (
-    <div className="cfc" role="group" aria-label="Income and spending by month">
+    <div className="cfc" role="group" aria-label="Income and spending by month" ref={ref}>
       <div className="cfc-plot" style={{ '--plot-h': `${H}px` } as CSSProperties}>
         <span className="cfc-grid" aria-hidden="true">
           <span className="cfc-tick num">{money(top, { approx: true })}</span>
@@ -147,7 +151,7 @@ export function CashflowChart({ months, focus }: Props) {
             </div>
           </>
         ) : (
-          <p className="cfc-none">No data for {monthLabel(focus)}</p>
+          <p className="cfc-none">Tap a month to see its figures.</p>
         )}
       </div>
     </div>

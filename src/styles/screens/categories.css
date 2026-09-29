@@ -117,14 +117,7 @@
 
   /* Plays when the editor opens (the class is dropped once it has played). */
   .cat-edit-in {
-    animation: catEditIn var(--dur-3) var(--ease-out) backwards;
-  }
-
-  @keyframes catEditIn {
-    from {
-      opacity: 0;
-      transform: translateY(-6px);
-    }
+    animation: discloseIn var(--dur-2) var(--ease-out) backwards;
   }
 
   .cat-edit-grid {

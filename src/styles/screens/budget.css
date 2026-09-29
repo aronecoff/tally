@@ -48,6 +48,18 @@
     opacity: 0.6;
   }
 
+  /* Hit slop (S3-a11y): 'Edit' measures 43pt wide, so the hit grows sideways to
+     44pt without moving the label. */
+  [data-screen="budget"] .sect-action {
+    position: relative;
+  }
+
+  [data-screen="budget"] .sect-action::after {
+    content: '';
+    position: absolute;
+    inset: 0 min(0px, calc((100% - var(--hit)) / 2));
+  }
+
   /* One column below 1040: the second column's first section still gets the
      24 + hairline + 24 section break (the primitive only joins siblings). */
   [data-screen="budget"] .dash-col + .dash-col > .card-sect:first-child {
@@ -69,21 +81,29 @@
     scroll-margin-top: var(--s-2);
   }
 
+  /* Home's row formula: 8pt above and below, 3pt from title to meta, so a
+     two-line row is 60 (--row-2) here and on Home. A budgeted row carries its
+     rail between the two with 6pt either side (the gap plus the rail's 3pt
+     margin): the one sanctioned three-part row, 68pt, the same as Home's. */
   .bud-cat-head {
     width: 100%;
     min-height: var(--row-2);
-    padding: 10px 0;
+    padding: var(--s-2) 0;
     border: 0;
     background: none;
     text-align: left;
     display: grid;
-    grid-template-columns: var(--glyph) minmax(0, 1fr) 16px;
+    grid-template-columns: var(--glyph) minmax(0, 1fr) 14px;
     column-gap: var(--glyph-gap);
     align-items: center;
   }
 
   .bud-cat-head .traj-main {
-    gap: 6px;
+    gap: 3px;
+  }
+
+  .bud-cat-head .traj-bar {
+    margin: 3px 0;
   }
 
   .bud-cat-head .traj-name {
@@ -104,7 +124,6 @@
   }
 
   .bud-cat-head .traj-meta {
-    line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -154,17 +173,17 @@
   }
 
   /* The last column is sized so amounts end exactly under the head figures
-     (head: figures | glyph-gap | 16px chevron). */
+     (head: figures | glyph-gap | 14px chevron). */
   .bud-txn {
     display: grid;
-    grid-template-columns: 52px minmax(0, 1fr) auto calc(16px + var(--glyph-gap) - var(--s-3));
+    grid-template-columns: 52px minmax(0, 1fr) auto calc(14px + var(--glyph-gap) - var(--s-3));
     column-gap: var(--s-3);
     align-items: baseline;
     align-content: center;
-    min-height: var(--hit);
+    min-height: var(--row-1);
     font-size: var(--fs-row);
     line-height: 1.3;
-    animation: budDiscloseIn var(--dur-2) var(--ease-out) backwards;
+    animation: discloseIn var(--dur-2) var(--ease-out) backwards;
   }
 
   .bud-txn:nth-child(2) {
@@ -204,11 +223,11 @@
     white-space: nowrap;
   }
 
-  /* Centred under the head chevron (16px there, 12px here). */
+  /* Centred under the head chevron (14px there, 12px here). */
   .bud-txn-chev {
     align-self: center;
     justify-self: end;
-    margin-right: 2px;
+    margin-right: 1px;
     color: var(--text-3);
   }
 
@@ -218,14 +237,7 @@
     min-height: var(--hit);
     font-size: var(--fs-meta);
     color: var(--text-3);
-    animation: budDiscloseIn var(--dur-2) var(--ease-out) backwards;
-  }
-
-  @keyframes budDiscloseIn {
-    from {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
+    animation: discloseIn var(--dur-2) var(--ease-out) backwards;
   }
 
   /* ---- The wheel ---------------------------------------------------------- */
@@ -242,7 +254,7 @@
     width: 100%;
     height: auto;
     overflow: visible;
-    animation: budFadeIn var(--dur-3) var(--ease-out) backwards;
+    animation: fadeIn var(--dur-3) var(--ease-out) backwards;
   }
 
   [data-screen="budget"][data-seen] .wheel {
@@ -273,7 +285,7 @@
     text-align: center;
     pointer-events: none;
     padding: 0 22%;
-    animation: budFadeIn var(--dur-1) var(--ease-out) backwards;
+    animation: fadeIn var(--dur-1) var(--ease-out) backwards;
   }
 
   .wheel-center-label {
@@ -308,6 +320,12 @@
     white-space: nowrap;
   }
 
+  /* Clay cents at the quiet .6 fall to 3.1:1 (dark) and 2.6:1 (light) at 20px;
+     .9 keeps them quieter than the dollars and above 4.5:1 (S3-a11y). */
+  .wheel-center-num.over .money-dec {
+    opacity: 0.9;
+  }
+
   .wheel-center-sub {
     font-size: var(--fs-caption);
     line-height: 1.4;
@@ -340,8 +358,14 @@
     background: none;
     color: var(--accent);
     font: var(--w-medium) var(--fs-meta) / 1.3 var(--font-ui);
-    animation: budFadeIn var(--dur-2) var(--ease-out) backwards;
+    animation: fadeIn var(--dur-2) var(--ease-out) backwards;
     transition: opacity var(--dur-1) var(--ease-out);
+  }
+
+  /* Above the first legend row's hit slop, which reaches 4px into the slot. */
+  .wheel-go {
+    position: relative;
+    z-index: 1;
   }
 
   .wheel-go:active {
@@ -380,8 +404,26 @@
     transition: opacity var(--dur-2) var(--ease-out);
   }
 
-  .wheel-key.has-sel .wheel-key-row:not(.sel) {
+  /* While another category is picked, the swatch fades and the words step
+     down to --text-3 (>=4.5:1) rather than fading below it (S3-a11y). */
+  .wheel-key.has-sel .wheel-key-row:not(.sel) :is(.wheel-key-name, .wheel-key-amt) {
+    color: var(--text-3);
+  }
+
+  .wheel-key.has-sel .wheel-key-row:not(.sel) .wheel-key-dot {
     opacity: 0.45;
+  }
+
+  /* Hit slop (S3-a11y): 36pt rows on a 44pt pitch; 4px above and below fills
+     the 8px gap exactly, so no row reaches a neighbour. */
+  .wheel-key-row {
+    position: relative;
+  }
+
+  .wheel-key-row::after {
+    content: '';
+    position: absolute;
+    inset: calc((var(--ctl-md) - var(--hit)) / 2) 0;
   }
 
   .wheel-key-row.sel .wheel-key-name {
@@ -398,6 +440,7 @@
     width: 9px;
     height: 9px;
     border-radius: 3px;
+    transition: opacity var(--dur-2) var(--ease-out);
   }
 
   /* Uncategorized: the hatch of Other's grey, as on its slice. */
@@ -422,15 +465,10 @@
     white-space: nowrap;
   }
 
-  @keyframes budFadeIn {
-    from {
-      opacity: 0;
-    }
-  }
-
   /* Hover: pointer devices only (no sticky iOS hover). */
   @media (hover: hover) and (pointer: fine) {
-    .wheel-slice:hover {
+    /* A dimmed slice stays dimmed under the pointer. */
+    .wheel-slice:not(.dim):hover {
       opacity: 0.82;
     }
     .wheel-key-row:hover,

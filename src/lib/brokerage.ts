@@ -31,18 +31,18 @@ async function invoke<T>(action: string): Promise<T> {
     }
     // The backend is gated to the signed-in owner; guide instead of "unauthorized".
     if (detail === 'unauthorized') {
-      throw new Error('Sign in to sync — tap the cloud icon, top-right.')
+      throw new Error('Sign in to Tally in Settings first.')
     }
-    throw new Error(detail || error.message || 'Request failed')
+    throw new Error(detail || error.message || 'Could not reach the server. Try again.')
   }
-  if (data && data.ok === false) throw new Error(data.error || 'Request failed')
+  if (data && data.ok === false) throw new Error(data.error || 'Could not reach the server. Try again.')
   return data as T
 }
 
 /** Ask the backend for a SnapTrade connection-portal URL to link a brokerage. */
 export async function connectBrokerage(): Promise<string> {
   const data = await invoke<{ ok: boolean; redirectURI: string }>('connect')
-  if (!data.redirectURI) throw new Error('No connection URL returned')
+  if (!data.redirectURI) throw new Error('Could not start the connection. Try again.')
   return data.redirectURI
 }
 

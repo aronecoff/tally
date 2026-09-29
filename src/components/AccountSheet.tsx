@@ -85,7 +85,7 @@ function AccountForm({ initial }: { initial: Account | null }) {
       await db.accounts.update(initial.id, { deleted: true, updatedAt: Date.now() })
     } catch {
       busy.current = false
-      setSaveErr('Could not save. Try again.')
+      setSaveErr('Could not delete. Try again.')
       return
     }
     close()

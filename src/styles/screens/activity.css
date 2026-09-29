@@ -27,7 +27,7 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--s-1);
     height: 32px;
     padding: 0 var(--s-3);
     border: 0;
@@ -106,10 +106,9 @@
     color: var(--text-2);
   }
 
-  /* ---- Entrance: first view only (.enter), short and capped at 8 rows ---- */
+  /* ---- Entrance: first view only (.enter), staggered and capped at 8 rows */
   @media (prefers-reduced-motion: no-preference) {
     [data-screen="activity"] .txn-row {
-      animation-duration: 0.32s;
       animation-delay: calc(var(--i, 0) * 24ms);
     }
   }

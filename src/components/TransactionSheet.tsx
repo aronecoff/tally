@@ -6,6 +6,7 @@ import { guessCategoryName } from '../lib/categorize'
 import { accountLabel, cleanMerchant, merchantInfo } from '../lib/merchants'
 import { money } from '../lib/format'
 import { useArmed } from '../lib/useArmed'
+import { rovingKeys } from '../lib/pressable'
 import { Icon } from './Icon'
 import { Pending } from './Pending'
 import { Sheet, SheetActions, useSheetClose, useSheetDirty } from './Sheet'
@@ -25,10 +26,19 @@ interface Props {
 
 const SAVE_ERR = 'Could not save. Try again.'
 
-/** The account the way people say it ('Citizens Money Market ··4837'). Display only. */
-function acctText(raw: string): string {
+/**
+ * The account the way people say it ('Citizens Money Market ··4837'). The mask
+ * is the most identifying part, so when space runs out the label gives way
+ * first and the mask is never cut. Display only.
+ */
+function AcctText({ raw }: { raw: string }) {
   const { label, mask } = accountLabel(raw)
-  return mask ? `${label} ··${mask}` : label
+  return (
+    <span className="field-value" title={raw}>
+      <span className="txn-acct-name">{label}</span>
+      {mask && <span className="txn-acct-mask">{`\u00a0··${mask}`}</span>}
+    </span>
+  )
 }
 
 /**
@@ -56,8 +66,9 @@ export function TransactionSheet({ categories, initial, onClose, onSaved, progre
 
 /**
  * The head names the object: the merchant, then one quiet line with the facts
- * (pending, day, account). A new transaction is 'New transaction'; the sort
- * queue leads with its position and moves the merchant into the line.
+ * (pending, day). The account is not repeated here: the Account row names it
+ * in full. A new transaction is 'New transaction'; the sort queue leads with
+ * its position and moves the merchant into the line.
  */
 function txnTitle(initial: Transaction | null, categories: Category[], progress?: string): ReactNode {
   if (!initial) return progress ? `Sort · ${progress}` : 'New transaction'
@@ -71,7 +82,6 @@ function txnTitle(initial: Transaction | null, categories: Category[], progress?
         {progress && merchant ? `${merchant} · ` : ''}
         {initial.pending && <Pending />}
         {dayHeading(initial.date)}
-        {initial.account ? ` · ${acctText(initial.account)}` : ''}
       </span>
     </>
   )
@@ -117,6 +127,9 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
   // the way the rest of the app shows it.
   const [amount, setAmount] = useState(initialAmount)
   const [date, setDate] = useState(initial?.date ?? todayISO())
+  // The date the sheet opened with, held once, so a date-only edit counts as
+  // unsaved (a new row's default is today at mount, not today at each render).
+  const [date0] = useState(date)
   const [pickedCategoryId, setPickedCategoryId] = useState<number | null>(initial?.categoryId ?? null)
   const [note, setNote] = useState(initial?.note ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
@@ -164,7 +177,9 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
     amount !== initialAmount ||
     note !== (initial?.note ?? '') ||
     pickedCategoryId !== (initial?.categoryId ?? null) ||
-    type !== (initial?.type ?? 'expense')
+    type !== (initial?.type ?? 'expense') ||
+    date !== date0 ||
+    account !== (initial?.account ?? '')
   useSheetDirty(dirty)
 
   // Auto-suggest a category from the note — but only once, and never after the
@@ -251,7 +266,7 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
       await db.transactions.update(initial.id, { deleted: true, manual: true, updatedAt: Date.now() })
     } catch {
       busy.current = false
-      setSaveErr(SAVE_ERR)
+      setSaveErr('Could not delete. Try again.')
       return
     }
     close()
@@ -308,11 +323,13 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
         </p>
       )}
 
-      <div className="seg" role="group" aria-label="Type">
+      <div className="seg" role="radiogroup" aria-label="Type" onKeyDown={rovingKeys}>
         <button
           type="button"
           className={type === 'expense' ? 'seg-on' : ''}
-          aria-pressed={type === 'expense'}
+          role="radio"
+          aria-checked={type === 'expense'}
+          tabIndex={type === 'expense' ? 0 : -1}
           onClick={() => changeType('expense')}
         >
           Expense
@@ -320,7 +337,9 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
         <button
           type="button"
           className={type === 'income' ? 'seg-on' : ''}
-          aria-pressed={type === 'income'}
+          role="radio"
+          aria-checked={type === 'income'}
+          tabIndex={type === 'income' ? 0 : -1}
           onClick={() => changeType('income')}
         >
           Income
@@ -388,7 +407,7 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
         {synced ? (
           <div className="field-line">
             <span>Account</span>
-            <span className="field-value" title={account}>{acctText(account)}</span>
+            <AcctText raw={account} />
           </div>
         ) : (
           <label className="field-line">

@@ -152,7 +152,6 @@
     height: 100%;
     border-radius: var(--r-pill);
     background: var(--viz-strong);
-    transition: width var(--dur-4) var(--ease-out);
   }
 
   .traj-fill.ok,
@@ -310,8 +309,11 @@
     column-gap: var(--glyph-gap);
     row-gap: 3px;
     align-items: baseline;
+    /* Home's row formula: 8pt padding and a 3pt row gap inside --row-2, the
+       two lines centred (40pt of text in 44pt), so every two-line row is 60. */
+    align-content: center;
     min-height: var(--row-2);
-    padding: 12px 0;
+    padding: var(--s-2) 0;
     cursor: pointer;
   }
 
@@ -360,20 +362,6 @@
     white-space: nowrap;
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    .txn-row {
-      animation: rowIn 0.42s var(--ease-out) backwards;
-      animation-delay: calc(var(--i, 0) * 45ms);
-    }
-  }
-
-  @keyframes rowIn {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-  }
-
   /* ---- Generic row behaviours (screens apply these by className) --------- */
   /* Inset hairline between rows, starting at the text column. */
   .row-sep + .row-sep::before,
@@ -409,7 +397,7 @@
   .row-press:active::after,
   .txn-row:active::after {
     opacity: 1;
-    transition: opacity 80ms linear 60ms;
+    transition: opacity var(--dur-press) var(--ease-out) 60ms;
   }
 
   /* ---- Disclosure chevron ------------------------------------------------ */
@@ -422,9 +410,18 @@
     transform: rotate(90deg);
   }
 
+  /* Disclosed content eases in under its row (Budget drill rows, the
+     Categories editor), on --dur-2 like the chevron. Never animates height. */
+  @keyframes discloseIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
   /* ---- Entrance: plays the first time a pane is seen, never on re-show --- */
   .enter {
-    animation: enterIn 0.42s var(--ease-out) backwards;
+    animation: enterIn var(--dur-3) var(--ease-out) backwards;
   }
 
   .pane[data-seen] .enter {
@@ -436,33 +433,6 @@
       opacity: 0;
       transform: translateY(8px);
     }
-  }
-
-  @keyframes cardIn {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-  }
-
-  .dash-col > * {
-    animation: cardIn 0.42s var(--ease-out) backwards;
-  }
-
-  .dash-col > *:nth-child(2) {
-    animation-delay: 0.055s;
-  }
-
-  .dash-col > *:nth-child(3) {
-    animation-delay: 0.11s;
-  }
-
-  .dash-col > *:nth-child(4) {
-    animation-delay: 0.165s;
-  }
-
-  .dash-col > *:nth-child(n + 5) {
-    animation-delay: 0.21s;
   }
 
   /* ---- Skeleton: shape without a false $0.00 ------------------------------ */
@@ -496,7 +466,7 @@
 
   @media (prefers-reduced-motion: no-preference) {
     .skel {
-      animation: skelPulse 1.2s var(--ease-out) infinite alternate;
+      animation: skelPulse var(--dur-loop) var(--ease-out) infinite alternate;
     }
   }
 
@@ -526,9 +496,11 @@
       align-items: start;
     }
     /* Left column stays put while the longer right column scrolls (desktop 2-col). */
+    /* top 0: at rest the column sits where it lays out, so every tab's hero
+       eyebrow starts at the pane's padding (a non-zero top pushed it down). */
     .dash-home > .dash-col:first-child {
       position: sticky;
-      top: 4px;
+      top: 0;
       align-self: start;
     }
   }

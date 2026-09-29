@@ -146,6 +146,7 @@
   .home-row .traj-figs,
   .home-brow .traj-figs {
     font-size: var(--fs-row);
+    line-height: 1.3;
   }
 
   .home-row .traj-figs .of,
@@ -156,7 +157,7 @@
   /* Budget row (detail): glyph | title + figure / rail / meta when not fine. */
   .home-brow {
     min-height: var(--row-1);
-    padding: 9px 0;
+    padding: var(--s-2) 0;
     align-content: center;
   }
 
@@ -164,8 +165,14 @@
     min-height: var(--row-2);
   }
 
+  /* 3pt title to meta (as every two-line row); the rail keeps 6pt either
+     side (the gap plus its own 3pt margin). */
   .home-brow .traj-main {
-    gap: 6px;
+    gap: 3px;
+  }
+
+  .home-brow .traj-bar {
+    margin: 3px 0;
   }
 
   .home-brow > .cat-tile {
@@ -245,12 +252,15 @@
     height: 64px;
   }
 
+  /* A day's spending is SPENDING, so it takes --viz-strong (>=3:1, S3-a11y) as
+     on every other chart; --viz-soft (1.7:1, decorative) stays with income,
+     the fixed segment and the hatch. Today stays --text-1. */
   .daily-bar {
     flex: 1 1 0;
     min-width: 0;
     min-height: 2px;
     border-radius: 3px 3px 2px 2px;
-    background: var(--viz-soft);
+    background: var(--viz-strong);
   }
 
   .daily-bar.zero {
@@ -277,7 +287,7 @@
     column-gap: var(--glyph-gap);
     align-items: center;
     min-height: var(--row-2);
-    padding: 10px 0;
+    padding: var(--s-2) 0;
   }
 
   .bill-main {

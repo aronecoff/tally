@@ -266,7 +266,7 @@ export async function syncNow(): Promise<void> {
     await push(user.id)
     emit({ status: 'synced', lastSyncedAt: Date.now(), error: null })
   } catch (e) {
-    emit({ status: 'error', error: e instanceof Error ? e.message : 'sync failed' })
+    emit({ status: 'error', error: e instanceof Error ? e.message : 'Sync failed.' })
   } finally {
     syncing = false
     if (queued) {
@@ -330,6 +330,21 @@ export function initSync(): void {
   })
 }
 
+/**
+ * One plain sentence for a failed sign-up, instead of the server's wording.
+ * The raw message is logged for debugging. A rate limit is checked before
+ * /email/, because Supabase's 'email rate limit exceeded' is not a bad address,
+ * and an existing account (the sign-in just failed) means the wrong password.
+ */
+function authErrorCopy(raw: string): string {
+  console.warn('Tally sign-in:', raw)
+  if (/rate limit|too many/i.test(raw)) return 'Too many tries. Wait a minute, then try again.'
+  if (/already registered|already exists/i.test(raw)) return 'That password does not match this email.'
+  if (/email/i.test(raw)) return 'Check the email address.'
+  if (/password/i.test(raw)) return 'Use at least 8 characters.'
+  return 'Could not sign in. Try again.'
+}
+
 /** Sign in, creating the account on first use. Returns an error string or null. */
 export async function signIn(email: string, password: string): Promise<string | null> {
   if (!supabase) return 'Sync is not configured.'
@@ -339,14 +354,14 @@ export async function signIn(email: string, password: string): Promise<string | 
 
   // Sign-in failed — try to create the account (first-time use).
   const signup = await supabase.auth.signUp({ email: clean, password })
-  if (signup.error) return signup.error.message
+  if (signup.error) return authErrorCopy(signup.error.message)
   if (!signup.data.session) {
     // Supabase obfuscates an already-registered email by returning a user with an
     // EMPTY identities array. Empty ⇒ the account exists and the password was
     // wrong (not an email-confirmation issue). Non-empty ⇒ a genuinely new
     // account that needs confirming.
     const identities = signup.data.user?.identities
-    if (identities && identities.length === 0) return 'Wrong password for that email. Check it and try again.'
+    if (identities && identities.length === 0) return 'That password does not match this email.'
     return 'Check your email to confirm your new account, then sign in.'
   }
   return null

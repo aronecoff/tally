@@ -108,7 +108,7 @@ export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect
 
   return (
     <>
-      <div className="wheel-wrap">
+      <div className="wheel-wrap" aria-live="polite">
         <svg className="wheel" viewBox="0 0 220 220" aria-hidden="true">
           <defs>
             <pattern id={hatchId} width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">

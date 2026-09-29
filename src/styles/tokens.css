@@ -68,26 +68,30 @@
     --text-1: #0C0414;
     --text-2: #4A4640; /* 8.2:1 */
     --text-3: #66615A; /* 5.35:1 on Paper, ≥5.0:1 on #EFE9DD */
-    --accent: #5C6A52;
-    --ok: #5C6A52;
+    --accent: #57644E; /* S3-a11y: was #5C6A52 (4.32:1 on the reconnect banner's amber tint); 5.49:1 on Paper, 4.65:1 on the tint */
+    --ok: #57644E; /* the same sage as --accent */
     --on-accent: var(--paper);
     --near: #765A18; /* 5.6:1 text */
-    --near-mark: #A8843B; /* 3.04:1 mark. The spec's #B08A3E measures 2.80:1 on Paper; same hue, darkened to clear 3:1 */
+    --near-mark: #937334; /* S3-a11y: same hue, deeper, so a rail fill clears 3:1 on its rendered --track (3.06:1; 3.86:1 on Paper). Was #A8843B (2.41:1 on the track) */
     --over: #924638; /* 5.8:1 text */
-    --over-mark: #B5685A; /* ≥3:1 mark */
+    --over-mark: #B26153; /* S3-a11y: 3.07:1 on the rendered --track, 3.87:1 on Paper. Was #B5685A (2.85:1 on the track) */
     --mesh: none; /* a Paper canvas stays flat */
     --elev-sheet: 0 -12px 40px -16px rgb(12 4 20 / 0.18);
     --elev-thumb: 0 1px 2px rgb(12 4 20 / 0.08); /* the one permitted small shadow */
     --viz-strong: color-mix(in srgb, var(--text-1) 46%, transparent); /* ≈3.25:1 on Paper */
 
-    /* Category palette, light variants (plat-28, ≥3:1 on Paper). */
+    /* Category palette, light variants (plat-28, ≥3:1 on Paper). S3-a11y: on
+       the rendered canvas (Paper under the grain, #F3EEE3) dining and health
+       measured 2.98:1 and transport 3.00:1, so those three are 0.5% lightness
+       deeper, same hue (3.05:1). Was transport #A18656, dining #B57C71,
+       health #B27B89. The rest already clear 3:1 and are unchanged. */
     --cat-rent: #6D8EA0;
     --cat-groceries: #66785A;
     --cat-shopping: #7F8E75;
-    --cat-transport: #A18656;
-    --cat-dining: #B57C71;
+    --cat-transport: #9F8555;
+    --cat-dining: #B47A6F;
     --cat-subscriptions: #7E7199;
-    --cat-health: #B27B89;
+    --cat-health: #B17988;
     --cat-fun: #A48457;
     --cat-other: #7D7970;
 
@@ -179,6 +183,7 @@
     --dur-4: 600ms; /* rails grow once */
     --dur-sheet: 480ms;
     --dur-sheet-out: 280ms;
+    --dur-loop: 1.2s; /* one beat of a running indicator: skeleton, sync dot, refresh glyph */
     --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-in: cubic-bezier(0.4, 0, 1, 1);
     --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);

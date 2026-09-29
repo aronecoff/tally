@@ -4,9 +4,10 @@ import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
 import { isFixedCategory } from '../lib/categorize'
 import { paceProjector } from '../lib/projection'
-import { budgetStatus, rowState, INCOME, OVERSPENT, SAVED, type RowState } from '../lib/copy'
+import { budgetStatus, rowState, INCOME, OVERSPENT, SAVED, SPENDING, BY_MONTH_END, type RowState } from '../lib/copy'
 import { currentMonth, dayLabel } from '../lib/dates'
 import { pressable } from '../lib/pressable'
+import { useSettle } from '../lib/motion'
 import { BudgetWheel, type WheelSlice } from './BudgetWheel'
 import { Icon } from './Icon'
 import { Money } from './Money'
@@ -204,6 +205,10 @@ export const Dashboard = memo(function Dashboard({
     document.getElementById(`bud-${key}`)?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' })
   }, [])
 
+  // The hero figure settles when it changes (a month step, a sync landing).
+  const heroRef = useRef<HTMLElement>(null)
+  useSettle(heroRef, '.hero-fig')
+
   if (!data) return <Skeleton variant="budget" />
 
   // Where an even spender would be today (day 21 of 30 → 70% of the month gone).
@@ -217,9 +222,11 @@ export const Dashboard = memo(function Dashboard({
   const pct = hasLimit ? Math.min(100, (data.expense / data.totalLimit) * 100) : 0
   const left = data.totalLimit - data.expense
   const hasSpend = wheelSlices.length > 0
+  // A past month with nothing in it has no verdict: no state word, no sage.
+  const noData = !src.isCurrent && data.expense === 0 && data.income === 0
 
   const drill = (r: Row) => (
-    <ul className="bud-txns">
+    <ul className="bud-txns" id={`bud-txns-${rowKey(r)}`}>
       {r.txns.length === 0 ? (
         <li className="bud-txn-empty">No transactions this month.</li>
       ) : (
@@ -263,7 +270,13 @@ export const Dashboard = memo(function Dashboard({
     })
     return (
       <li key={key} id={`bud-${key}`} className={`bud-cat row-sep${expanded ? ' open' : ''}`}>
-        <button type="button" className="bud-cat-head row-press" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : key)}>
+        <button
+          type="button"
+          className="bud-cat-head row-press"
+          aria-expanded={expanded}
+          aria-controls={expanded ? `bud-txns-${key}` : undefined}
+          onClick={() => setOpen(expanded ? null : key)}
+        >
           <span className={`cat-tile sm ${tile}`}>
             <Icon name={r.icon} size={16} />
           </span>
@@ -272,7 +285,7 @@ export const Dashboard = memo(function Dashboard({
               <span className="traj-name">{r.name}</span>
               <span className="traj-figs num">
                 <strong className={r.state === 'over' ? 'over' : ''}>{money(r.spent)}</strong>
-                {has && <span className="of"> / {money(r.limit, { trim: true })}</span>}
+                {has && <span className="of"> of {money(r.limit, { trim: true })}</span>}
               </span>
             </span>
             {has && (
@@ -288,7 +301,7 @@ export const Dashboard = memo(function Dashboard({
               <span className={status.tone}>{status.text}</span>
             </span>
           </span>
-          <Icon name="chevron" size={16} className={`chev${expanded ? ' open' : ''}`} />
+          <Icon name="chevron" size={14} className={`chev${expanded ? ' open' : ''}`} />
         </button>
         {expanded && drill(r)}
       </li>
@@ -300,7 +313,13 @@ export const Dashboard = memo(function Dashboard({
     const expanded = open === key
     return (
       <li key={key} id={`bud-${key}`} className={`bud-cat bud-idle row-sep${expanded ? ' open' : ''}`}>
-        <button type="button" className="bud-cat-head row-press" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : key)}>
+        <button
+          type="button"
+          className="bud-cat-head row-press"
+          aria-expanded={expanded}
+          aria-controls={expanded ? `bud-txns-${key}` : undefined}
+          onClick={() => setOpen(expanded ? null : key)}
+        >
           <span className="cat-tile sm">
             <Icon name={r.icon} size={16} />
           </span>
@@ -310,7 +329,7 @@ export const Dashboard = memo(function Dashboard({
               <span className="traj-figs num">{money(r.limit, { trim: true })}</span>
             </span>
           </span>
-          <Icon name="chevron" size={16} className={`chev${expanded ? ' open' : ''}`} />
+          <Icon name="chevron" size={14} className={`chev${expanded ? ' open' : ''}`} />
         </button>
         {expanded && drill(r)}
       </li>
@@ -321,9 +340,9 @@ export const Dashboard = memo(function Dashboard({
     <div className="dash-home">
       <div className="dash-col">
         {/* Hero: the month's spend, a verdict word, and the rail that proves it. */}
-        <section className="card-sect bud-hero enter">
-          <span className="hero-label">{src.isCurrent ? 'Spent so far' : 'Spent'}</span>
-          {hasLimit && (
+        <section className="card-sect bud-hero enter" ref={heroRef}>
+          <span className="hero-label">{src.isCurrent ? `${SPENDING} so far` : SPENDING}</span>
+          {hasLimit && !noData && (
             <span className={`hero-state ${heroState}`}>
               {over ? 'Over budget' : overPace ? 'Likely to go over' : 'On track'}
             </span>
@@ -345,12 +364,16 @@ export const Dashboard = memo(function Dashboard({
                   </>
                 ) : (
                   <>
+                    {/* Home's order and words: 'of $X budget · ~$Y by month-end'. */}
+                    of {money(data.totalLimit, { trim: true })} budget
                     {data.canProject && (
                       <>
-                        <span className="nowrap">~{money(data.projectedTotal, { approx: true })} by month‑end</span> ·{' '}
+                        {' · '}
+                        <span className="nowrap">
+                          ~{money(data.projectedTotal, { approx: true })} {BY_MONTH_END}
+                        </span>
                       </>
                     )}
-                    {money(data.totalLimit, { trim: true })} budget
                   </>
                 )}
               </span>
@@ -361,7 +384,7 @@ export const Dashboard = memo(function Dashboard({
           )}
           <p className="bud-meta num">
             {INCOME} {money(data.income)} · {data.net >= 0 ? SAVED : OVERSPENT}{' '}
-            <span className={data.net >= 0 ? 'pos' : 'over'}>{money(Math.abs(data.net))}</span>
+            <span className={noData ? undefined : data.net >= 0 ? 'pos' : 'over'}>{money(Math.abs(data.net))}</span>
           </p>
         </section>
 
@@ -370,7 +393,7 @@ export const Dashboard = memo(function Dashboard({
           <section className="card-sect enter">
             <div className="sect-row">
               <span className="sect-title">The shape of your month</span>
-              <span className="sect-note">share of your month</span>
+              <span className="sect-note">share of spending</span>
             </div>
             <BudgetWheel
               slices={wheelSlices}
@@ -402,7 +425,9 @@ export const Dashboard = memo(function Dashboard({
               {data.rows.map(row)}
               {data.idle.length > 0 && (
                 <li className="bud-group">
-                  Nothing yet · <span className="num">{money(data.idleSum, { trim: true })}</span> ready
+                  {src.isCurrent ? 'Nothing yet · ' : 'Nothing spent · '}
+                  <span className="num">{money(data.idleSum, { trim: true })}</span>
+                  {src.isCurrent ? ' ready' : ' unused'}
                 </li>
               )}
               {data.idle.map(idleRow)}

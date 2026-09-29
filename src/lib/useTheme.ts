@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { reducedMotion } from './motion'
 
 export type Theme = 'light' | 'dark'
 export type ThemePref = 'system' | Theme
@@ -59,12 +61,34 @@ export function useTheme() {
   }, [resolved])
 
   const setPref = useCallback((p: ThemePref) => {
-    setPrefState(p)
     try {
       localStorage.setItem(KEY, p)
     } catch {
       /* storage blocked: the choice lasts for this session */
     }
+    const root = document.documentElement
+    const next: Theme = p === 'system' ? systemTheme() : p
+    if (root.getAttribute('data-theme') === next) {
+      setPrefState(p)
+      return
+    }
+    // A theme change is one dissolve of the whole page (a root view transition,
+    // timed in base.css), not a ripple of per-element fades: the new theme is
+    // committed synchronously inside the transition and the colour transitions
+    // it starts are finished at once. Reduce Motion, or an engine without view
+    // transitions, swaps instantly.
+    const commit = () => {
+      flushSync(() => setPrefState(p))
+      root.setAttribute('data-theme', next)
+      if (typeof CSSTransition === 'undefined' || typeof document.getAnimations !== 'function') return
+      void getComputedStyle(root).color // resolve the new theme's styles now
+      for (const a of document.getAnimations()) {
+        if (a instanceof CSSTransition && !/^(transform|opacity)$/.test(a.transitionProperty)) a.finish()
+      }
+    }
+    const doc = document as Document & { startViewTransition?: (update: () => void) => unknown }
+    if (typeof doc.startViewTransition === 'function' && !reducedMotion()) doc.startViewTransition(commit)
+    else commit()
   }, [])
 
   return { pref, resolved, setPref }

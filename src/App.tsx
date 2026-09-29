@@ -6,6 +6,7 @@ import { seedIfEmpty } from './db/seed'
 import { seedAccountsIfEmpty } from './db/seedAccounts'
 import { currentMonth } from './lib/dates'
 import { useTheme } from './lib/useTheme'
+import { play } from './lib/motion'
 import { Home } from './components/Home'
 import { Accounts } from './components/Accounts'
 import { Dashboard } from './components/Dashboard'
@@ -248,6 +249,27 @@ export default function App() {
     if (Math.abs(el.scrollTop - y) > 1) el.scrollTop = y
     headRef.current?.classList.toggle('scrolled', el.scrollTop > 2)
   }, [tab, loaded])
+
+  // Month step: the shown pane drifts in from the side time moved toward (a
+  // step back comes from the left) and the header month crossfades. Script
+  // animations, so nothing replays when a pane is shown again; transform and
+  // opacity only; play() skips them under Reduce Motion.
+  const shownMonth = useRef(month)
+  useLayoutEffect(() => {
+    const from = shownMonth.current
+    shownMonth.current = month
+    if (from === month) return
+    const d = month > from ? 1 : -1
+    play(
+      panes.current[tabRef.current],
+      [
+        { opacity: 0.35, transform: `translateX(${d * 14}px)` },
+        { opacity: 1, transform: 'none' },
+      ],
+      '--dur-2',
+    )
+    play(headRef.current?.querySelector('.ms-label'), [{ opacity: 0 }, { opacity: 1 }], '--dur-2')
+  }, [month])
 
   // Header hairline: a DOM class from one passive capture listener, never state.
   useEffect(() => {
@@ -535,6 +557,7 @@ export default function App() {
                 key={t}
                 className="view pane"
                 data-screen={SCREEN[t]}
+                aria-label={TABS.find((x) => x.id === t)?.label}
                 hidden={t !== tab}
                 ref={paneRefs[t]}
               >

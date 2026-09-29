@@ -80,7 +80,6 @@
     font-family: var(--font-ui);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    transition: background-color var(--dur-3) var(--ease-out);
     background: var(--grain) repeat, var(--mesh), var(--bg);
   }
 
@@ -120,8 +119,16 @@
     outline-offset: 2px;
   }
 
+  /* Inside a grouped, clipped container (sheet, field and step groups) the ring
+     is drawn inside the cell, with a radius, so the group's rounded clip can
+     never cut it (S3-a11y). */
+  :where(.sheet-group, .field-group, .connect-steps) :where(button, a, [role='button'], [tabindex='0']):focus-visible {
+    outline-offset: -2px;
+    border-radius: var(--r-md);
+  }
+
   /* Reduce Motion: everything collapses to a short dissolve. The sheet keeps a
-     200ms fade: its rule has the same (zero) specificity as * and comes later
+     --dur-2 fade: its rule has the same (zero) specificity as * and comes later
      in this layer, so it wins. :where() keeps .sheet's ownership in sheet.css.
      The ONLY !important in the app. */
   @media (prefers-reduced-motion: reduce) {
@@ -135,7 +142,7 @@
       scroll-behavior: auto !important;
     }
     :where(.sheet) {
-      animation: fadeIn 0.2s ease both !important;
+      animation: fadeIn var(--dur-2) var(--ease-out) both !important;
     }
     :where(.sheet.is-closing) {
       animation-name: fadeOut !important;
@@ -152,5 +159,14 @@
     to {
       opacity: 0;
     }
+  }
+
+  /* Theme change: one dissolve of the whole page. useTheme runs it as a root
+     view transition (skipped under Reduce Motion); nothing else fades on its
+     own, so the body carries no colour transition. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur-3);
+    animation-timing-function: var(--ease-out);
   }
 }

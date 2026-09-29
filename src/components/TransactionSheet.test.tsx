@@ -14,7 +14,9 @@
  * Also: Delete works without window.confirm (a silent no-op in the iOS
  * wrapper) and needs two taps; picking a chip or a type writes nothing until
  * Save; Enter submits once through the form (never through a stray default
- * button); a failed save keeps the sheet and its values.
+ * button); a failed save keeps the sheet and its values; an edit to any field,
+ * the date and the account included, makes a drag down spring back instead of
+ * closing the sheet and losing it.
  *
  * These are component tests on purpose: a unit test of a helper would still
  * pass if someone re-added a clearing setState, which is exactly the
@@ -64,7 +66,7 @@ const selectedChip = () =>
     .map((b) => b.textContent?.trim())
 
 const seg = (label: string) =>
-  screen.getAllByRole('button').find((b) => b.textContent?.trim() === label)!
+  screen.getAllByRole('radio').find((b) => b.textContent?.trim() === label)!
 
 const amountInput = () => screen.getByLabelText('Amount') as HTMLInputElement
 
@@ -185,6 +187,29 @@ describe('TransactionSheet — amount', () => {
   })
 })
 
+describe('TransactionSheet — head and account', () => {
+  const SYNCED: Transaction = {
+    ...TXN,
+    id: 44,
+    uid: 'sf:abc',
+    pending: true,
+    account: 'Citizens Bank Money Market Account (4837)',
+    note: 'American Express',
+  }
+
+  it('names the account once, in the Account row, with its mask kept whole', () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={SYNCED} onClose={() => {}} />)
+    const sub = document.querySelector('.txn-head-sub')?.textContent ?? ''
+    expect(sub).not.toMatch(/Money Market|4837/)
+    expect(sub).toMatch(/Pending/)
+    // The mask is its own element, so the label ellipsizes first.
+    const value = document.querySelector('.field-value')
+    expect(value?.querySelector('.txn-acct-name')?.textContent).toBe('Citizens Money Market')
+    expect(value?.querySelector('.txn-acct-mask')?.textContent).toBe('\u00a0··4837')
+    expect(value?.textContent).toBe('Citizens Money Market\u00a0··4837')
+  })
+})
+
 describe('TransactionSheet — delete', () => {
   it('needs two taps and never calls window.confirm', async () => {
     const confirmSpy = vi.fn(() => true)
@@ -282,7 +307,7 @@ describe('TransactionSheet — Enter', () => {
       expect(saved?.amount).toBe(2875)
     })
     // No stray default button was clicked on the way: the type shown is still Income.
-    expect(seg('Income').getAttribute('aria-pressed')).toBe('true')
+    expect(seg('Income').getAttribute('aria-checked')).toBe('true')
     expect(selectedChip()).toEqual(['Salary'])
   })
 })
@@ -316,5 +341,43 @@ describe('TransactionSheet — save outcome', () => {
     fireEvent.click(screen.getByText('Save'))
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
     expect((await db.transactions.get(42))?.amount).toBe(55.2)
+  })
+})
+
+describe('TransactionSheet — unsaved edits survive a drag down', () => {
+  /** A 250px downward drag on the grab area, as a finger would make it. */
+  function dragDown() {
+    const drag = document.querySelector('.sheet-drag') as HTMLElement
+    const grab = document.querySelector('.sheet-grab') as HTMLElement
+    fireEvent.pointerDown(grab, { pointerId: 1, button: 0, clientY: 100 })
+    fireEvent.pointerMove(drag, { pointerId: 1, clientY: 350 })
+    fireEvent.pointerUp(drag, { pointerId: 1, clientY: 350 })
+  }
+
+  it('an untouched sheet closes on the drag', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+    await flush()
+    dragDown()
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a date-only edit keeps the sheet open', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-07-02' } })
+    await flush()
+    dragDown()
+    expect(onClose).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Date') as HTMLInputElement).value).toBe('2026-07-02')
+  })
+
+  it('an account-only edit keeps the sheet open', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={TXN} onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Amex Green' } })
+    await flush()
+    dragDown()
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

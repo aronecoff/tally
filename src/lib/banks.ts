@@ -39,10 +39,10 @@ async function invoke<T>(action: string, body: Record<string, unknown> = {}): Pr
     } catch {
       /* fall back to the generic message */
     }
-    if (detail === 'unauthorized') throw new Error('Sign in to sync — tap the cloud icon, top-right.')
-    throw new Error(detail || error.message || 'Request failed')
+    if (detail === 'unauthorized') throw new Error('Sign in to Tally in Settings first.')
+    throw new Error(detail || error.message || 'Could not reach the server. Try again.')
   }
-  if (data && data.ok === false) throw new Error(data.error || 'Request failed')
+  if (data && data.ok === false) throw new Error(data.error || 'Could not reach the server. Try again.')
   return data as T
 }
 
@@ -440,10 +440,10 @@ async function runAllConnectors(force: boolean): Promise<{ total: number; errors
   const errors: string[] = []
   for (const r of [broker, bank]) {
     if (r.status === 'fulfilled') total += r.value || 0
-    else errors.push(r.reason instanceof Error ? r.reason.message : 'Sync failed')
+    else errors.push(r.reason instanceof Error ? r.reason.message : 'Could not refresh. Try again.')
   }
   if (tx.status === 'rejected' && total === 0 && errors.length === 0) {
-    errors.push(tx.reason instanceof Error ? tx.reason.message : 'Sync failed')
+    errors.push(tx.reason instanceof Error ? tx.reason.message : 'Could not refresh. Try again.')
   }
   return { total, errors, bankSkipped: !doBank }
 }

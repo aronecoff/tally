@@ -129,6 +129,17 @@ describe('Budget hero: unbudgeted note', () => {
     expect(root.querySelector('.hero-caption')?.textContent).toBe(`${money(11273.24 - 6375)} over a $6,375 budget`)
     expect(root.querySelector('.bud-cap-note')?.textContent).toBe(`${money(3517.62 + 986.45)} of this has no budget`)
   })
+
+  it('gives a past month with nothing in it no verdict: no state word, no sage', async () => {
+    const root = await renderMonth('2026-03', [])
+    expect(root.querySelector('.hero-state')).toBeNull()
+    expect(root.querySelector('.hero-fig')?.textContent).toBe('$0.00')
+    expect(root.querySelector('.bud-meta .pos, .bud-meta .over')).toBeNull()
+    // The current month keeps its verdict even before anything is spent.
+    cleanup()
+    const now = await renderMonth('2026-09', [])
+    expect(now.querySelector('.hero-state')?.textContent).toBe('On track')
+  })
 })
 
 describe('Budget list: idle group', () => {

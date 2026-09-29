@@ -51,7 +51,7 @@
     column-gap: var(--glyph-gap);
     align-items: center;
     min-height: var(--row-2);
-    padding: 12px 0;
+    padding: var(--s-2) 0;
   }
 
   .an-main {
@@ -176,6 +176,12 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
+  }
+
+  /* The soft Fixed swatch carries the same ≥3:1 ring as the chart's income
+     swatch (.cfc-dot.in), so both soft swatches read as swatches. */
+  .an-mix-dot.fixed {
+    box-shadow: inset 0 0 0 1px var(--viz-strong);
   }
 
   .an-mix-note {
@@ -369,8 +375,10 @@
     white-space: nowrap;
   }
 
+  /* An incomplete month's net is not a verdict: neutral --text-3 (>=4.5:1),
+     where a half-faded sage or clay fell to 2-2.6:1 (S3-a11y). */
   .cfc-xnet.dim {
-    opacity: 0.5;
+    color: var(--text-3);
   }
 
   .cfc-legend {

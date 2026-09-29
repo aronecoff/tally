@@ -3,6 +3,7 @@ import { subscribeSync, signIn, signOutSync, syncNow, changePassword, type SyncS
 import { supabase } from '../db/supabase'
 import { banksEnabled } from '../lib/banks'
 import { ago } from '../lib/dates'
+import { rovingKeys } from '../lib/pressable'
 import type { ThemePref } from '../lib/useTheme'
 import { Icon } from './Icon'
 import { Sheet, useSheetClose } from './Sheet'
@@ -120,13 +121,15 @@ function SettingsBody({ pref, setPref, after, onCategories, onBankConnections }:
   const appearance = (
     <>
       <span className="sheet-label" id="settings-appearance">Appearance</span>
-      <div className="seg" role="group" aria-labelledby="settings-appearance">
+      <div className="seg" role="radiogroup" aria-labelledby="settings-appearance" onKeyDown={rovingKeys}>
         {THEME_OPTIONS.map((o) => (
           <button
             key={o.value}
             type="button"
             className={pref === o.value ? 'seg-on' : ''}
-            aria-pressed={pref === o.value}
+            role="radio"
+            aria-checked={pref === o.value}
+            tabIndex={pref === o.value ? 0 : -1}
             onClick={() => setPref(o.value)}
           >
             {o.label}

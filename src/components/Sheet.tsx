@@ -140,8 +140,11 @@ function noop() {}
 
 const FIELD = 'input, textarea, select'
 const INTERACTIVE = 'button, a, input, textarea, select, label'
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+// Tab stops only: an unchosen option of a roving radio group carries tabindex -1
+// and is reached with the arrow keys, so it is never the trap's first or last.
+const FOCUSABLE = [
+  'a[href]', 'button:not([disabled])', 'input:not([disabled])', 'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]',
+].map((s) => `${s}:not([tabindex="-1"])`).join(', ')
 
 interface Props {
   kind: SheetKind

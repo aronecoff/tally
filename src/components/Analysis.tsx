@@ -1,10 +1,11 @@
-import { memo, useMemo, useState, type CSSProperties } from 'react'
+import { memo, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category } from '../db/db'
 import { money, pct } from '../lib/format'
 import { isFixedCategory } from '../lib/categorize'
 import { cleanMerchant } from '../lib/merchants'
 import { shiftMonth, monthLabel, currentMonth } from '../lib/dates'
+import { useSettle } from '../lib/motion'
 import { CashflowChart, type MonthPoint } from './CashflowChart'
 import { Icon } from './Icon'
 import { Money } from './Money'
@@ -173,6 +174,10 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
     return { income, spend, spendCount, movers, habits, cats, share, prevSpend, footed }
   }, [txns, prevTxns, isCurrent, dayOfMonth, catById])
 
+  // The hero figure settles when it changes (a month step, a sync landing).
+  const heroRef = useRef<HTMLElement>(null)
+  useSettle(heroRef, '.hero-fig')
+
   if (txns === undefined || prevTxns === undefined || allTxns === undefined) {
     return <Skeleton variant="insights" />
   }
@@ -197,19 +202,19 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
     : prevLabel.split(' ')[0]
   const chart = history.length > 1 && <CashflowChart key={month} months={history} focus={month} />
 
+  // A month with no data keeps the hero's anatomy and left edge (eyebrow, the
+  // plain answer, a caption) with no figure, so the chart below stays anchored.
   if (!hasData) {
     return (
       <div className="analysis">
         <section className="sect enter">
-          <p className="empty">
-            No activity in {monthLabel(month)}.
-            {isCurrent && (
-              <>
-                <br />
-                Insights appear as transactions sync.
-              </>
-            )}
-          </p>
+          <span className="hero-label">{isCurrent ? 'So far this month' : 'For the month'}</span>
+          <span className="hero-state">No activity in {monthLabel(month)}.</span>
+          {isCurrent && (
+            <span className="hero-caption">
+              Insights appear as transactions sync.
+            </span>
+          )}
           {chart}
         </section>
       </div>
@@ -219,7 +224,7 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
   return (
     <div className="analysis an-grid">
       <div className="an-lead">
-        <section className="sect enter">
+        <section className="sect enter" ref={heroRef}>
           <span className="hero-label">{isCurrent ? 'So far this month' : 'For the month'}</span>
           <span className={`hero-state ${net >= 0 ? 'ok' : 'over'}`}>{net >= 0 ? 'Saved' : 'Overspent'}</span>
           <Money className="hero-fig" value={Math.abs(net)} />
@@ -307,7 +312,7 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
           <section className="sect enter">
             <div className="sect-row an-head">
               <h2 className="sect-title">Repeat merchants</h2>
-              <span className="sect-note">3+ visits</span>
+              <span className="sect-note">3+ charges</span>
             </div>
             <ul className="an-list">
               {a.habits.map((h) => {

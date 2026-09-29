@@ -8,7 +8,7 @@ interface Props {
 }
 
 /**
- * The header title on the month screens: ‹ September ›. Steps are functional
+ * The header title on the month screens: September between two chevrons. Steps are functional
  * updates (two quick taps move two months, never one) and the forward step is
  * capped at the current month. Tapping the label returns to the current month,
  * as does 'This month' when it fits.

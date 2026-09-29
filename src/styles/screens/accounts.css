@@ -19,9 +19,7 @@
   }
 
   /* ---- Hero: eyebrow, figure, owned · owed, then the status line --------- */
-  .nw-hero {
-    padding-top: var(--s-2);
-  }
+  /* No extra top padding: the eyebrow sits where every other tab's does. */
 
   /* A quiet 28pt line with a 44pt hit area. It never forces a bank fetch. */
   .nw-status {
@@ -185,6 +183,11 @@
     text-overflow: clip;
   }
 
+  /* A narrow tile: the amount at the name's size rather than no amount. */
+  .nwmap-amt.small {
+    font-size: var(--fs-micro);
+  }
+
   /* Legend: dot and tier name only. */
   .nwmap-key {
     display: flex;
@@ -242,7 +245,7 @@
     justify-content: space-between;
     gap: var(--s-3);
     /* The total sits in the balance column: clear of the 14pt chevron and its gap. */
-    padding: 0 calc(14px + var(--s-2)) var(--s-1) 0;
+    padding: 0 calc(14px + var(--glyph-gap)) var(--s-1) 0;
   }
 
   .tier-label {
@@ -315,7 +318,7 @@
     width: 100%;
     min-height: var(--row-2);
     margin: 0;
-    padding: 10px 0;
+    padding: var(--s-2) 0;
     border: 0;
     background: none;
     color: inherit;
@@ -369,9 +372,10 @@
     white-space: nowrap;
   }
 
+  /* One chevron spec app-wide: 14pt, 14pt (the glyph gap) from the figure. */
   .acct-chev {
     flex: none;
-    margin-left: var(--s-2);
+    margin-left: var(--glyph-gap);
   }
 
   /* A group footer for connect results (brokerage window, bank sheet). */
@@ -392,7 +396,7 @@
   /* Refresh glyphs turn only while work runs, and only when motion is allowed. */
   @media (prefers-reduced-motion: no-preference) {
     [data-screen="accounts"] .spin {
-      animation: nwSpin 0.9s linear infinite;
+      animation: nwSpin var(--dur-loop) linear infinite;
     }
   }
 
@@ -418,15 +422,18 @@
       align-items: start;
       max-width: none;
     }
+    /* top 0: the column rests where it lays out (at the pane's padding), so
+       the Net worth eyebrow starts where every tab's eyebrow does. */
     .accounts > .dash-col:first-child {
       position: sticky;
-      top: 4px;
+      top: 0;
       align-self: start;
     }
-    /* The first tier eyebrow lines up with the Net worth eyebrow. */
+    /* No top padding: the hero has none, so the first tier eyebrow lines up
+       with the Net worth eyebrow (within the ~2px it centres in .tier-head). */
     .accounts > .dash-col + .dash-col {
       border-top: 0;
-      padding-top: var(--s-2);
+      padding-top: 0;
     }
   }
 

@@ -44,7 +44,7 @@
     border: 0;
     box-shadow: none;
     z-index: var(--z-chrome);
-    transition: box-shadow var(--dur-1) linear;
+    transition: box-shadow var(--dur-1) var(--ease-out);
   }
 
   /* A hairline appears once the pane below has scrolled. */
@@ -272,15 +272,6 @@
     animation: pushIn var(--dur-3) var(--ease-out) backwards;
   }
 
-  /* Legacy entrances play once per pane: the .dash-col > * cardIn cascade
-     (Accounts; Home and Budget sections carry .enter, which it still
-     outranks) and the bare .txn-row rowIn (Home's Today rows). Delete this
-     with cardIn and rowIn once those screens use .enter. */
-  .pane[data-seen] .dash-col > *,
-  .pane[data-seen] .txn-row {
-    animation: none;
-  }
-
   @keyframes viewIn {
     from {
       opacity: 0.35;
@@ -464,7 +455,7 @@
 
   @media (prefers-reduced-motion: no-preference) {
     .head-dot.is-syncing {
-      animation: dotPulse 0.9s var(--ease-out) infinite alternate;
+      animation: dotPulse var(--dur-loop) var(--ease-out) infinite alternate;
     }
   }
 

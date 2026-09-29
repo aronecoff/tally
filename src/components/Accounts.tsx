@@ -10,6 +10,7 @@ import { BankConnectSheet } from './BankConnectSheet'
 import { AccountSheet } from './AccountSheet'
 import { squarify } from '../lib/treemap'
 import { TIERS } from '../lib/tiers'
+import { useSettle } from '../lib/motion'
 import { Icon } from './Icon'
 import { Money } from './Money'
 import { Skeleton } from './Skeleton'
@@ -70,23 +71,28 @@ const COMPACT = new Intl.NumberFormat('en-US', {
 const COMPACT_MULT: Record<string, number> = { '': 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 }
 
 /** Width of a tile amount as drawn (the .nwmap-amt font: --w-demi --fs-meta
- *  --font-ui). Canvas matches the DOM for these figures; without a canvas it
- *  falls back to the 7.2px-a-character estimate. */
+ *  --font-ui, or --fs-micro for .nwmap-amt.small). Canvas matches the DOM for
+ *  these figures; without a canvas it falls back to a per-character estimate
+ *  (7.2px at 13px, scaled for 11px). */
 let amtCtx: CanvasRenderingContext2D | null | undefined
-function amountWidth(s: string): number {
+let amtFont: { meta: string; micro: string } | null = null
+function amountWidth(s: string, small = false): number {
   if (amtCtx === undefined) {
     try {
       amtCtx = document.createElement('canvas').getContext('2d')
       if (amtCtx) {
         const css = getComputedStyle(document.documentElement)
         const v = (k: string, d: string) => css.getPropertyValue(k).trim() || d
-        amtCtx.font = `${v('--w-demi', '600')} ${v('--fs-meta', '13px')} ${v('--font-ui', 'sans-serif')}`
+        const font = (size: string) => `${v('--w-demi', '600')} ${size} ${v('--font-ui', 'sans-serif')}`
+        amtFont = { meta: font(v('--fs-meta', '13px')), micro: font(v('--fs-micro', '11px')) }
       }
     } catch {
       amtCtx = null
     }
   }
-  return amtCtx ? amtCtx.measureText(s).width : s.length * 7.2
+  if (!amtCtx || !amtFont) return s.length * (small ? 6.1 : 7.2)
+  amtCtx.font = small ? amtFont.micro : amtFont.meta
+  return amtCtx.measureText(s).width
 }
 
 function readTime(key: string): number {
@@ -106,7 +112,9 @@ function writeTime(key: string, ms: number): void {
 }
 
 /** Compact form of |n|, or null when it would sit more than 1% off the exact
- *  figure ($1.9K for $1,851.37 is 2.6% off, so that tile shows no amount). */
+ *  figure ($1.9K for $1,851.37 is 2.6% off, so that tile shows '$1,851' at the
+ *  small size instead, or no amount when even that does not fit). A second
+ *  decimal never helps: '$1.85K' is as wide as '$1,851'. */
 function compactAbs(n: number): string | null {
   const abs = Math.abs(n)
   const s = COMPACT.format(abs)
@@ -225,7 +233,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
       }
     } catch (e) {
       if (win) win.close()
-      setNote({ text: e instanceof Error ? e.message : 'Could not start the connection', err: true })
+      setNote({ text: e instanceof Error ? e.message : 'Could not start the connection. Try again.', err: true })
     }
   }
 
@@ -312,6 +320,10 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
     return () => ro.disconnect()
   }, [hasMap])
 
+  // Net worth settles when it changes (a sync landing, an edit).
+  const heroRef = useRef<HTMLElement>(null)
+  useSettle(heroRef, '.hero-fig')
+
   if (accounts === undefined) return <Skeleton variant="accounts" />
 
   const now = Date.now()
@@ -320,7 +332,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
   const u = mapPx / MAP_W
 
   const connections = (
-    <div className="tier add-group">
+    <div className="tier add-group enter">
       <div className="tier-head">
         <span className="tier-label">Connections</span>
       </div>
@@ -400,13 +412,13 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
     <div className="accounts">
       {list.length === 0 ? (
         <div className="dash-col">
-          <p className="empty">No accounts yet</p>
+          <p className="empty enter">No accounts yet</p>
           {connections}
         </div>
       ) : (
         <>
           <div className="dash-col">
-            <section className="sect nw-hero">
+            <section className="sect nw-hero enter" ref={heroRef}>
               <span className="hero-label">Net worth</span>
               <Money className="hero-fig" value={netWorth} />
               <span className="hero-caption">
@@ -439,10 +451,10 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
             </section>
 
             {hasMap && (
-              <section className="sect">
+              <section className="sect enter">
                 <div className="sect-row">
                   <span className="sect-title">Where your money lives</span>
-                  <span className="sect-note">size = balance</span>
+                  <span className="sect-note">sized by balance</span>
                 </div>
                 <div
                   className="nwmap"
@@ -462,9 +474,16 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
                     const short = compactAbs(a.balance)
                     const compact = short && lead + (a.balance < 0 ? '−' : '') + short
                     // The drawn width plus the 8px inset, the border and a little air on
-                    // the right. An amount that does not fit is left out, never cut.
-                    const fits = (s: string) => wpx >= amountWidth(s) + 12
-                    const amt = hpx < 20 ? null : fits(full) ? full : compact && fits(compact) ? compact : null
+                    // the right. An amount that does not fit is left out, never cut. A
+                    // narrow tile steps its amount down to the name's size (--fs-micro,
+                    // the chart-label size) before giving up, so a sizeable holding is
+                    // not left blank; only slivers no true figure fits in stay empty.
+                    const fits = (s: string, small: boolean) => wpx >= amountWidth(s, small) + 12
+                    const pick = (small: boolean) =>
+                      fits(full, small) ? full : compact && fits(compact, small) ? compact : null
+                    const big = hpx < 20 ? null : pick(false)
+                    const amt = big ?? (hpx < 20 ? null : pick(true))
+                    const small = big == null && amt != null
                     const showName = amt != null && hpx >= 40 && wpx >= 52
                     const exact = `${a.institution} ${a.name}, ${owed ? 'owed ' : ''}${money(a.balance)}`
                     const r = c.rect
@@ -501,7 +520,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
                         {amt && (
                           <span className={`nwmap-label${hpx < 30 ? ' tight' : ''}`} aria-hidden="true">
                             {showName && <span className="nwmap-name">{tileLabel(a, list)}</span>}
-                            <span className="nwmap-amt num">{amt}</span>
+                            <span className={`nwmap-amt num${small ? ' small' : ''}`}>{amt}</span>
                           </span>
                         )}
                       </button>
@@ -526,7 +545,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
               if (rows.length === 0) return null
               const subtotal = rows.reduce((s, a) => s + a.balance, 0)
               return (
-                <div className="tier" key={tier.type}>
+                <div className="tier enter" key={tier.type}>
                   <div className="tier-head">
                     <span className="tier-label">
                       <i className={`tier-dot ${tier.type}`} aria-hidden="true" />

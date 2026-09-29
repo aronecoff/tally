@@ -5,7 +5,7 @@ import { money } from '../lib/format'
 import { currentMonth, dayHeading, dayLabel, monthLabel } from '../lib/dates'
 import { accountLabel, cleanMerchant } from '../lib/merchants'
 import { groupByDay, type DayGroup } from '../lib/ledger'
-import { pressable } from '../lib/pressable'
+import { pressable, rovingKeys } from '../lib/pressable'
 import { Icon } from './Icon'
 import { Pending } from './Pending'
 import { Skeleton } from './Skeleton'
@@ -63,10 +63,12 @@ export const TransactionList = memo(function TransactionList({ month, categories
   const shownMonth = useWhileActive(month, active)
   const cats = useWhileActive(categories, active)
 
-  // The filter belongs to the month it was picked in: a new month starts at All.
+  // The filter lasts only as long as its month: any month change resets it to
+  // All, so coming back to a month starts at All too.
   const [picked, setPicked] = useState<{ month: string; filter: Filter }>({ month, filter: 'all' })
-  const filter: Filter = picked.month === shownMonth ? picked.filter : 'all'
-  const pick = (f: Filter) => setPicked({ month: shownMonth, filter: f })
+  if (picked.month !== month) setPicked({ month, filter: 'all' })
+  const filter: Filter = picked.month === month ? picked.filter : 'all'
+  const pick = (f: Filter) => setPicked({ month, filter: f })
 
   const catById = useMemo(() => {
     const m = new Map<number, Category>()
@@ -126,11 +128,12 @@ export const TransactionList = memo(function TransactionList({ month, categories
       </p>
 
       {(uncat > 0 || filter === 'uncat') && (
-        <div className="txn-filter" role="tablist" aria-label="Filter">
+        <div className="txn-filter" role="tablist" aria-label="Filter" onKeyDown={rovingKeys}>
           <button
             type="button"
             role="tab"
             aria-selected={filter === 'all'}
+            tabIndex={filter === 'all' ? 0 : -1}
             className={filter === 'all' ? 'on' : undefined}
             onClick={() => pick('all')}
           >
@@ -140,6 +143,7 @@ export const TransactionList = memo(function TransactionList({ month, categories
             type="button"
             role="tab"
             aria-selected={filter === 'uncat'}
+            tabIndex={filter === 'uncat' ? 0 : -1}
             className={filter === 'uncat' ? 'on' : undefined}
             onClick={() => pick('uncat')}
           >
@@ -166,6 +170,10 @@ interface DayListProps {
   onEdit: (t: Transaction) => void
 }
 
+/** Expense rows in a day: its total is shown only when it sums two or more,
+ *  since a lone expense would repeat its own row figure right below it. */
+const expenseRows = (g: DayGroup) => g.rows.reduce((n, t) => (t.type === 'expense' ? n + 1 : n), 0)
+
 /** The ledger: a quiet heading per day with its total, then that day's rows. */
 const DayList = memo(function DayList({ groups, catById, names, onEdit }: DayListProps) {
   let i = 0 // entrance stagger index, counted across days
@@ -175,7 +183,7 @@ const DayList = memo(function DayList({ groups, catById, names, onEdit }: DayLis
         <section className="txn-day" key={g.date}>
           <div className="txn-day-head" role="heading" aria-level={3}>
             <span>{dayHeading(g.date)}</span>
-            {g.out > 0 && <span className="num">{money(g.out)}</span>}
+            {g.out > 0 && expenseRows(g) > 1 && <span className="num">{money(g.out)}</span>}
           </div>
           <ul className="txn-list">
             {g.rows.map((t) => (
@@ -232,7 +240,7 @@ function TxnRow({ t, i, catById, names, onEdit }: TxnRowProps) {
       <span className="txn-main">
         <span className="txn-note">{title}</span>
         <span className="txn-sub">
-          {t.pending && <Pending />}
+          {t.pending && (meta.length > 0 ? <Pending /> : <span className="pending-chip">Pending</span>)}
           {meta.map((m, k) => (
             <Fragment key={k}>
               {k > 0 && ' · '}

@@ -124,8 +124,8 @@ describe('TransactionList', () => {
     fireEvent.click(tabs[1])
     expect(tabs[1].getAttribute('aria-selected')).toBe('true')
     expect([...container.querySelectorAll('.txn-note')].map((n) => n.textContent)).toEqual(['Corner Store'])
-    // The heading total is the sum of the rows shown under it.
-    expect(container.querySelector('.txn-day-head')?.textContent).toBe('Fri, Sep 18$42.50')
+    // One row under the heading: no total, which would only repeat its figure.
+    expect(container.querySelector('.txn-day-head')?.textContent).toBe('Fri, Sep 18')
     // The month summary stays the month's, not the filter's.
     expect(container.querySelector('.txn-count')?.textContent).toBe('3 transactions · 1 pending')
 
@@ -133,6 +133,37 @@ describe('TransactionList', () => {
     await screen.findByText('August thing')
     const tabs8 = within(container.querySelector('.txn-filter') as HTMLElement).getAllByRole('tab')
     expect(tabs8[0].getAttribute('aria-selected')).toBe('true')
+
+    // Coming back to the month it was picked in does not restore it either.
+    rerender(view('2026-09'))
+    await screen.findByText('PayPal Pay in 4')
+    const tabs9 = within(container.querySelector('.txn-filter') as HTMLElement).getAllByRole('tab')
+    expect(tabs9[0].getAttribute('aria-selected')).toBe('true')
+    expect(container.textContent).toMatch(/American Express/)
+  })
+
+  it('totals a day only when it has two or more expense rows', async () => {
+    await seed([
+      txn({ date: '2026-09-18', amount: 118, pending: true, account: CHECKING, note: 'Debit' }),
+      txn({ date: '2026-09-15', amount: 47.86, categoryId: 1, account: AMEX, note: 'Amazon' }),
+      txn({ date: '2026-09-15', amount: 21.99, categoryId: 1, account: AMEX, note: 'Apple' }),
+      txn({ date: '2026-09-10', amount: 40, categoryId: 1, account: AMEX, note: 'Lunch' }),
+      txn({ date: '2026-09-10', amount: 2968.21, type: 'income', categoryId: 7, account: CHECKING, note: 'Payroll' }),
+    ])
+    const { container } = render(view())
+    await screen.findByText('Payroll')
+    const heads = [...container.querySelectorAll('.txn-day-head')].map((h) => h.textContent)
+    // One expense (with or without income beside it) reads from its own row.
+    expect(heads).toEqual(['Fri, Sep 18', 'Tue, Sep 15$69.85', 'Thu, Sep 10'])
+  })
+
+  it('a pending row with nothing else to say reads Pending, with no trailing separator', async () => {
+    await seed([txn({ date: '2026-09-18', amount: 50, type: 'income', pending: true, note: 'Refund' })])
+    const { container } = render(view())
+    await screen.findByText('Refund')
+    const sub = container.querySelector('.txn-sub') as HTMLElement
+    expect(sub.textContent).toBe('Pending')
+    expect(sub.querySelector('.meta-sep')).toBeNull()
   })
 
   it('says which month is empty, and offers Add only for the current month', async () => {
