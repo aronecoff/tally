@@ -1,5 +1,5 @@
 import { applySyncedAccounts, syncBrokerages, type SyncedAccount } from './brokerage'
-import { classifyBankTx, detectTransferIds, isoFromUnix, type SyncedTx } from './bankRules'
+import { classifyBankTx, detectTransferIds, isoFromUnix, rentDate, type SyncedTx } from './bankRules'
 import { categorize } from './categorize'
 import { oneRowPerUid } from './ledger'
 import { db, type Transaction, type TxType } from '../db/db'
@@ -174,12 +174,15 @@ export async function syncBankTransactions(days = 365): Promise<number> {
       ? catsByName.get(name.toLowerCase())?.find((c) => (c.kind === 'income') === (type === 'income'))
       : undefined
     const categoryId = cat ? cat.id : null
+    const posted = isoFromUnix(t.posted)
+    const rent = cat != null && verdict.kind === 'expense' && name!.trim().toLowerCase() === 'rent'
 
     const uid = `sf:${t.sourceTxId}`
     const cents = Math.round(Math.abs(Number(t.amount)) * 100) / 100
     desired.set(uid, {
       uid,
-      date: isoFromUnix(t.posted),
+      // Rent paid early counts on the 1st of the month it pays for (bankRules.ts).
+      date: rent ? rentDate(posted) : posted,
       amount: verdict.kind === 'refund' ? -cents : cents,
       type,
       categoryId,

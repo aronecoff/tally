@@ -59,6 +59,9 @@ src/
   the merchant's category, so it comes off that category's spending in the
   month it posts (every total just adds amounts). Card payments are transfers
   and never land (`src/lib/bankRules.ts`).
+- **Rent paid early**: a synced Rent payment made in the last week of a month
+  is dated the 1st of the next month, the month it pays for, so every month
+  carries one rent. A date set by hand is never moved.
 
 Every row carries `updatedAt`. That's deliberate (see below).
 

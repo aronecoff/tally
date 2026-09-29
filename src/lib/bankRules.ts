@@ -54,6 +54,22 @@ export function isoFromUnix(sec: number): string {
   return `${y}-${m}-${day}`
 }
 
+/**
+ * Rent paid in the last week of a month is the NEXT month's rent: it is due on
+ * the 1st, so it goes out a few days early. Filing it on the 1st of the month it
+ * pays for gives every month exactly one rent, instead of two in the month it
+ * was paid and none in the next (which had been fixed by hand every month).
+ */
+export const RENT_EARLY_DAYS = 7
+
+/** The date a rent payment made on `iso` counts on. */
+export function rentDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  if (d <= daysInMonth - RENT_EARLY_DAYS) return iso
+  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+}
+
 const txText = (t: SyncedTx) => [t.payee, t.description, t.memo].filter(Boolean).join(' ')
 
 /**

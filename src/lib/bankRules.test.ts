@@ -7,7 +7,7 @@
  * public wording; accounts and amounts are made up.
  */
 import { describe, expect, it } from 'vitest'
-import { CARD_CREDIT_NOT_REFUND_RE, classifyBankTx, detectTransferIds, type SyncedTx } from './bankRules'
+import { CARD_CREDIT_NOT_REFUND_RE, classifyBankTx, detectTransferIds, rentDate, type SyncedTx } from './bankRules'
 
 const CARD = 'Test Bank Rewards Visa (1111)'
 const CARD_2 = 'Other Issuer Gold Card (2222)'
@@ -79,5 +79,23 @@ describe('card credits', () => {
 
   it('a zero row is skipped', () => {
     expect(kind(tx({ account: CHECKING, amount: 0, description: 'FEE WAIVER' }))).toBe('skip:no-amount')
+  })
+})
+
+describe('rent paid early', () => {
+  it('the last week of a month counts on the 1st of the next', () => {
+    expect(rentDate('2026-09-28')).toBe('2026-10-01')
+    expect(rentDate('2026-09-24')).toBe('2026-10-01') // 30-day month: the 24th starts the last week
+    expect(rentDate('2026-07-31')).toBe('2026-08-01')
+    expect(rentDate('2026-08-25')).toBe('2026-09-01') // 31-day month: the 25th starts it
+    expect(rentDate('2026-02-22')).toBe('2026-03-01')
+    expect(rentDate('2026-12-29')).toBe('2027-01-01')
+  })
+
+  it('anything earlier stays where it was paid', () => {
+    expect(rentDate('2026-09-23')).toBe('2026-09-23')
+    expect(rentDate('2026-08-24')).toBe('2026-08-24')
+    expect(rentDate('2026-10-01')).toBe('2026-10-01')
+    expect(rentDate('2026-10-15')).toBe('2026-10-15')
   })
 })
