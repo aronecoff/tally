@@ -44,6 +44,13 @@
   --pos: #4E5A46;
 }
 :root {
+  /* Net-worth tier hues — five separable colours in the app's earth palette. */
+  --tier-cash: #8FA083;
+  --tier-brokerage: #8C7FA8;
+  --tier-retirement: #6F91A3;
+  --tier-benefit: #C9A86B;
+  --tier-credit: #C98A7E;
+
   --r-lg: 24px;
   --r: 18px;
   --r-sm: 12px;
@@ -2063,3 +2070,691 @@ body {
 .allgood.overflow-note svg { color: var(--over); margin-top: 2px; }
 .detail-toggle { margin: 4px auto 0; display: flex; align-items: center; gap: 8px; background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--glass-border); border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 550; color: var(--text-2); cursor: pointer; }
 .detail-toggle:hover { color: var(--text); background: var(--glass-2); }
+
+/* ============ Budget allocation map (treemap) ============ */
+.bmap {
+  position: relative;
+  width: 100%;
+  margin-top: 4px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.bmap-tile {
+  position: absolute;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  background: var(--field);
+  overflow: hidden;
+  display: block;
+  text-align: left;
+  color: var(--text);
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.14s, border-color 0.14s;
+}
+.bmap-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px var(--shadow); }
+.bmap-tile.sel { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent); }
+/* Liquid fill rising from the bottom = share of that budget consumed. */
+.bmap-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  transition: height 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.bmap-tile.ok   .bmap-fill { background: linear-gradient(180deg, color-mix(in srgb, var(--pos) 82%, transparent), color-mix(in srgb, var(--pos) 52%, transparent)); }
+.bmap-tile.pace .bmap-fill { background: linear-gradient(180deg, color-mix(in srgb, var(--near) 84%, transparent), color-mix(in srgb, var(--near) 54%, transparent)); }
+.bmap-tile.over .bmap-fill { background: linear-gradient(180deg, color-mix(in srgb, var(--over) 86%, transparent), color-mix(in srgb, var(--over) 56%, transparent)); }
+.bmap-tile.none .bmap-fill { background: linear-gradient(180deg, color-mix(in srgb, var(--muted) 60%, transparent), color-mix(in srgb, var(--muted) 36%, transparent)); }
+.bmap-label {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 8px;
+  min-width: 0;
+}
+.bmap-name {
+  font-size: 11.5px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px var(--shadow);
+}
+.bmap-amt {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-shadow: 0 1px 2px var(--shadow);
+}
+.bmap-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.bmap-key span { display: inline-flex; align-items: center; gap: 5px; }
+.bmap-key-hint { margin-left: auto; opacity: 0.8; }
+.bmap-dot { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+.bmap-dot.ok { background: var(--pos); }
+.bmap-dot.pace { background: var(--near); }
+.bmap-dot.over { background: var(--over); }
+
+/* Pace tick on category bars — where an even spender would be today. */
+.traj-bar { position: relative; }
+.traj-pace {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--text);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.bmap-label.tiny { padding: 4px 5px; }
+.bmap-label.tiny .bmap-name { font-size: 10px; font-weight: 600; }
+
+/* ============ Net-worth / balance-sheet map ============ */
+.nwmap {
+  position: relative;
+  width: 100%;
+  margin-top: 4px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.nwmap-tile {
+  position: absolute;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: block;
+  text-align: left;
+  color: var(--text);
+  background: var(--field);
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.14s;
+}
+.nwmap-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px var(--shadow); }
+/* Tier colour carries asset-vs-liability; area only carries magnitude. */
+/* Five distinct hues tuned to the muted earth palette. NOTE: --accent and
+   --pos are the same sage, so tiers must not be keyed off both or Cash and
+   Benefits become indistinguishable. */
+.nwmap-tile.cash       { background: linear-gradient(160deg, color-mix(in srgb, var(--tier-cash) 80%, transparent), color-mix(in srgb, var(--tier-cash) 50%, transparent)); }
+.nwmap-tile.brokerage  { background: linear-gradient(160deg, color-mix(in srgb, var(--tier-brokerage) 80%, transparent), color-mix(in srgb, var(--tier-brokerage) 50%, transparent)); }
+.nwmap-tile.retirement { background: linear-gradient(160deg, color-mix(in srgb, var(--tier-retirement) 80%, transparent), color-mix(in srgb, var(--tier-retirement) 50%, transparent)); }
+.nwmap-tile.benefit    { background: linear-gradient(160deg, color-mix(in srgb, var(--tier-benefit) 80%, transparent), color-mix(in srgb, var(--tier-benefit) 50%, transparent)); }
+.nwmap-tile.credit     { background: linear-gradient(160deg, color-mix(in srgb, var(--tier-credit) 84%, transparent), color-mix(in srgb, var(--tier-credit) 54%, transparent)); }
+.nwmap-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 8px;
+  min-width: 0;
+}
+.nwmap-label.tiny { padding: 4px 5px; }
+.nwmap-name {
+  font-size: 11.5px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px var(--shadow);
+}
+.nwmap-label.tiny .nwmap-name { font-size: 10px; font-weight: 600; }
+.nwmap-amt {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-2);
+  text-shadow: 0 1px 2px var(--shadow);
+}
+.nwmap-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.nwmap-key span { display: inline-flex; align-items: center; gap: 5px; }
+.nwmap-key-hint { margin-left: auto; opacity: 0.8; }
+.nwmap-dot { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+.nwmap-dot.cash { background: var(--tier-cash); }
+.nwmap-dot.brokerage { background: var(--tier-brokerage); }
+.nwmap-dot.retirement { background: var(--tier-retirement); }
+.nwmap-dot.benefit { background: var(--tier-benefit); }
+.nwmap-dot.credit { background: var(--tier-credit); }
+.nwmap-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.nwmap-foot strong { color: var(--text); font-weight: 680; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PREMIUM PASS — editorial type, paper grain, layered depth, spring motion.
+   Appended last so it overrides earlier equal-specificity rules.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+:root[data-theme='dark'] {
+  --font-display: 'Instrument Serif', 'Avenir Next', Georgia, serif;
+  /* Surfaces get a faint top-to-bottom fall so cards read as lit from above
+     instead of as flat translucent rectangles. */
+  --surface: linear-gradient(180deg, rgba(244, 239, 228, 0.072), rgba(244, 239, 228, 0.036));
+  /* Three-layer elevation: contact shadow, mid lift, wide ambient. */
+  --elev:
+    0 1px 2px rgba(0, 0, 0, 0.32),
+    0 10px 26px -8px rgba(0, 0, 0, 0.5),
+    0 30px 60px -22px rgba(0, 0, 0, 0.42);
+  --hairline: rgba(244, 239, 228, 0.09);
+}
+:root[data-theme='light'] {
+  --surface: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.52));
+  --elev:
+    0 1px 2px rgba(12, 4, 20, 0.06),
+    0 10px 26px -10px rgba(12, 4, 20, 0.16),
+    0 30px 60px -24px rgba(12, 4, 20, 0.12);
+  --hairline: rgba(12, 4, 20, 0.09);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --surface: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.52));
+    --elev:
+      0 1px 2px rgba(12, 4, 20, 0.06),
+      0 10px 26px -10px rgba(12, 4, 20, 0.16),
+      0 30px 60px -24px rgba(12, 4, 20, 0.12);
+    --hairline: rgba(12, 4, 20, 0.09);
+  }
+}
+
+:root { --blur: blur(32px) saturate(155%); }
+
+/* Paper grain over the ink canvas — the texture that separates "printed" from
+   "flat dark UI". Baked into the background stack so it can never sit above
+   sheets or intercept taps. */
+body {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.038'/%3E%3C/svg%3E") repeat,
+    var(--mesh) fixed,
+    var(--bg);
+}
+
+/* ---- Surfaces ---- */
+.glass,
+.app-head,
+.sidebar,
+.tabbar,
+.hero,
+.alerts,
+.mini-stats,
+.limit-list,
+.txn-list,
+.cats-card,
+.sheet,
+.install-banner,
+.fab,
+.preview-list,
+.cf-card,
+.card-sect,
+.an-movers,
+.an-habits,
+.an-mix,
+.an-savetrend {
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--spec), var(--elev);
+}
+/* The header and tab bar are edge-anchored chrome, not floating cards. */
+.app-head { box-shadow: 0 1px 0 var(--hairline); }
+.tabbar { box-shadow: inset 0 1px 0 var(--spec), 0 -12px 32px -12px rgba(0, 0, 0, 0.45); }
+
+/* ---- Editorial type ---- */
+/* Hero figures in the display serif: at 400 weight and large sizes this reads
+   like fine stationery rather than a dashboard widget. */
+.cf-net,
+.an-hero-num,
+.nw-num {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.012em;
+  font-feature-settings: 'tnum' 1;
+}
+.cf-net { font-size: clamp(42px, 12.5vw, 48px); line-height: 1.02; }
+.an-hero-num { font-size: clamp(46px, 13.5vw, 52px); line-height: 1.02; }
+.nw-num { font-size: clamp(46px, 13.5vw, 60px); line-height: 1; margin: 10px 0 6px; }
+
+/* Card titles become editorial headings. */
+.sect-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: 0.002em;
+  color: var(--text);
+  text-transform: none;
+}
+
+/* Micro-labels: smaller, wider, quieter — the caption voice. */
+.cf-title,
+.an-section-title,
+.section-title {
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sect-note,
+.nw-sub,
+.bmap-key,
+.nwmap-key,
+.an-foot {
+  letter-spacing: 0.005em;
+}
+
+/* ---- Map tiles: inner light + crisper edge ---- */
+.bmap-tile,
+.nwmap-tile {
+  box-shadow: inset 0 1px 0 rgba(244, 239, 228, 0.14), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  border-color: var(--hairline);
+}
+.bmap-tile:hover,
+.nwmap-tile:hover {
+  box-shadow: inset 0 1px 0 rgba(244, 239, 228, 0.2), 0 10px 22px -8px rgba(0, 0, 0, 0.55);
+}
+
+/* ---- Motion: staged spring entrance, one beat per card ---- */
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.988); }
+}
+.dash-col > * {
+  animation: cardIn 0.58s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.dash-col > *:nth-child(2) { animation-delay: 0.055s; }
+.dash-col > *:nth-child(3) { animation-delay: 0.11s; }
+.dash-col > *:nth-child(4) { animation-delay: 0.165s; }
+.dash-col > *:nth-child(n + 5) { animation-delay: 0.21s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-col > * { animation: none; }
+  .bmap-fill, .an-savemonth-bar, .traj-fill { transition: none; }
+}
+
+/* Home's focal point. The outcome number ("what did I actually keep") earns the
+   display face; stacking it under a caption-voice label also kills the
+   space-between wrap that split "Saved so far this / month". */
+.cf-save {
+  display: block;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+.cf-save-label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--muted);
+}
+.cf-save-figs {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cf-save-figs strong {
+  font-family: var(--font-display);
+  font-size: clamp(38px, 11.5vw, 46px);
+  font-weight: 400;
+  letter-spacing: -0.012em;
+  line-height: 1;
+}
+.cf-save-rate { white-space: nowrap; }
+
+/* The verdict is the supporting statement, not a competing headline. */
+.bud-verdict-fig { font-size: 16px; font-weight: 680; letter-spacing: -0.02em; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   QUIET — the shipped visual language. Space and hairlines group content
+   instead of boxes, and colour is spent only where something needs attention.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root { --r-lg: 18px; --r: 14px; --r-sm: 9px; }
+
+/* Cards dissolve: whitespace and rules do the grouping. */
+.cf-card,
+.card-sect,
+.an-movers,
+.an-habits,
+.an-mix,
+.an-savetrend {
+  background: none;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* Radius must go too: a 1px border-top on a still-rounded box curves at both
+     ends, which read on device as a stray rounded rectangle, not a divider. */
+  border-radius: 0;
+  padding: 0 2px 26px;
+}
+/* Dividers belong BETWEEN SECTIONS only. A bare `> * + *` also hit standalone
+   buttons that sit as direct children of .dash-col (Show charts, Add an
+   account), giving them a stray rule and 26px of top padding — which is what
+   made them render oversized and misaligned. */
+.dash-col > :is(.cf-card, .card-sect) + :is(.cf-card, .card-sect) {
+  border-top: 1px solid var(--hairline);
+  padding-top: 26px;
+}
+
+/* Progress becomes a hairline rail. Neutral when fine; coloured only when not. */
+.traj-bar,
+.cf-bar { height: 3px; border-radius: 2px; background: rgba(244, 239, 228, 0.1); }
+.traj-fill,
+.cf-bar-fill { border-radius: 2px; box-shadow: none; background: rgba(244, 239, 228, 0.42); }
+.cf-bar-fill.in,
+.cf-bar-fill.out,
+.traj-fill.ok { background: rgba(244, 239, 228, 0.38); }
+.traj-fill.pace { background: var(--near); }
+.traj-fill.over { background: var(--over); }
+
+/* Icons lose their bordered boxes and become plain glyphs. */
+.cat-tile,
+.cat-tile.sm,
+.traj-row .cat-tile.sm,
+.bill-row .cat-tile.sm {
+  width: 20px; height: 20px;
+  border: none; background: none; border-radius: 0;
+  color: var(--muted);
+}
+.traj-row { grid-template-columns: 20px 1fr; gap: 14px; }
+.cat-tile.sm.over { color: var(--over); }
+.cat-tile.sm.pace { color: var(--near); }
+.cat-tile.sm.ok { color: var(--muted); }
+
+/* Lighter figures so the serif headings lead rather than compete. */
+.sect-title { font-size: 20px; }
+.traj-figs strong,
+.bud-mini .num,
+.cf-flow-amt { font-weight: 500; letter-spacing: -0.015em; }
+.traj-name { font-weight: 450; font-size: 15px; }
+
+/* Budget map: neutral where on track, colour only for hot/over. */
+.bmap-tile { border-radius: 5px; box-shadow: none; border-color: rgba(244, 239, 228, 0.1); }
+.bmap-tile.ok .bmap-fill { background: rgba(244, 239, 228, 0.14); }
+.bmap-tile.none .bmap-fill { background: rgba(244, 239, 228, 0.07); }
+
+/* Net-worth map keeps tier identity — but as a low tint plus a crisp top rule,
+   not a saturated block. Going fully neutral here erased the balance sheet. */
+.nwmap-tile {
+  border-radius: 5px;
+  box-shadow: none;
+  border-color: rgba(244, 239, 228, 0.1);
+  background: color-mix(in srgb, var(--tier, transparent) 24%, transparent);
+}
+.nwmap-tile::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 3px;
+  background: var(--tier, transparent);
+}
+/* Set BOTH the token and the background here: the saturated per-tier gradients
+   earlier in this file are .nwmap-tile.cash (0,2,0), so a bare .nwmap-tile rule
+   would lose to them and the map would stay vivid. */
+.nwmap-tile.cash { --tier: var(--tier-cash); background: color-mix(in srgb, var(--tier-cash) 26%, transparent); }
+.nwmap-tile.brokerage { --tier: var(--tier-brokerage); background: color-mix(in srgb, var(--tier-brokerage) 26%, transparent); }
+.nwmap-tile.retirement { --tier: var(--tier-retirement); background: color-mix(in srgb, var(--tier-retirement) 26%, transparent); }
+.nwmap-tile.benefit { --tier: var(--tier-benefit); background: color-mix(in srgb, var(--tier-benefit) 26%, transparent); }
+.nwmap-tile.credit { --tier: var(--tier-credit); background: color-mix(in srgb, var(--tier-credit) 30%, transparent); }
+
+/* ---- De-tacky: kill the coloured background bloom ------------------------
+   The sage/cream radial glows behind everything were the single most dated
+   signal (2020 glassmorphism). A flat, near-neutral ink with only the paper
+   grain on top reads far more expensive. */
+:root,
+:root[data-theme='dark'] {
+  --bg: #09090B;
+  --mesh: linear-gradient(180deg, rgba(244, 239, 228, 0.022), transparent 46%);
+}
+
+/* ---- Budget wheel -------------------------------------------------------- */
+.wheel-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 300px;
+  margin: 8px auto 4px;
+}
+.wheel { display: block; width: 100%; height: auto; overflow: visible; }
+.wheel-slice { cursor: pointer; transition: opacity 0.16s ease, filter 0.16s ease; }
+.wheel-slice:hover { filter: brightness(1.15); }
+.wheel-slice.sel { filter: brightness(1.22); }
+/* Selecting one slice quiets the rest so the pick is unmistakable. */
+.wheel-slice.dim { opacity: 0.3; }
+
+.wheel-key {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 18px;
+}
+.wheel-key-row {
+  display: grid;
+  grid-template-columns: 9px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: opacity 0.15s;
+}
+.wheel-key-row:hover { opacity: 0.75; }
+.wheel-key-row.sel .wheel-key-name { color: var(--text); font-weight: 600; }
+.wheel-key-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.wheel-key-name {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wheel-key-amt { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+.wheel-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  text-align: center;
+  pointer-events: none;
+  padding: 0 22%;
+}
+.wheel-center-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.wheel-center-num {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: -0.012em;
+}
+.wheel-center-sub { font-size: 12px; color: var(--muted); }
+
+/* Wheel legend dots must match the slice colours they explain. */
+.bmap-dot.ok { background: rgba(244, 239, 228, 0.34); }
+.bmap-dot.pace { background: var(--near); }
+.bmap-dot.over { background: var(--over); }
+
+/* ---- iOS WebKit correctness -------------------------------------------------
+   Without this, iOS "auto-inflates" text inside blocks it decides are narrow —
+   so buttons and labels render noticeably larger in the native app than in any
+   desktop browser, which is why device-only size bugs kept appearing. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+/* Kill the grey flash box iOS paints over every tap target. */
+* { -webkit-tap-highlight-color: transparent; }
+
+/* Secondary pill actions: compact, quiet, consistent across screens. */
+.detail-toggle,
+.home-more,
+.acct-add {
+  margin: 18px auto 0;
+  padding: 7px 15px;
+  font-size: 12.5px;
+  font-weight: 550;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  color: var(--text-2);
+}
+.detail-toggle svg,
+.home-more svg,
+.acct-add svg { opacity: 0.8; }
+
+/* ---- Narrow-screen correctness (iPhone SE, 320pt) -------------------------
+   Flex items default to min-width:auto, so the Income − Spending = Saved row
+   could not shrink below its content and ran off the right edge at 320pt. */
+.an-tie-cell {
+  min-width: 0;
+  padding: 14px 6px;
+  text-align: center;
+}
+.an-tie-val { font-size: clamp(13px, 3.5vw, 16px); }
+.an-tie-label,
+.an-tie-rate {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+  text-align: center;
+}
+.an-tie-rate { font-size: 9.5px; }
+.an-tie-op { flex: 0 0 auto; }
+
+/* Map labels must never spill their tile, whatever the tile's size. */
+.nwmap-amt,
+.bmap-amt,
+.nwmap-name,
+.bmap-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pending = authorised but not yet posted. It still counts against the budget
+   (the money is committed), so it is labelled rather than hidden or discounted. */
+.pending-chip {
+  display: inline-block;
+  margin-right: 7px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--near) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--near) 42%, transparent);
+  color: var(--near);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+/* ---- Money in vs out: interactive monthly cashflow ---------------------- */
+.cfc { margin-top: 4px; }
+.cfc-plot {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding-bottom: 2px;
+}
+.cfc-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: opacity 0.15s;
+}
+.cfc-col:hover { opacity: 0.8; }
+.cfc-col.sel .cfc-xlabel { color: var(--text); font-weight: 650; }
+.cfc-bars { display: flex; align-items: flex-end; gap: 3px; height: 100%; width: 100%; justify-content: center; }
+.cfc-bar {
+  width: 44%;
+  max-width: 16px;
+  border-radius: 3px 3px 1px 1px;
+  transition: height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.cfc-bar.in { background: rgba(244, 239, 228, 0.42); }
+.cfc-bar.out { background: rgba(244, 239, 228, 0.18); }
+/* Out-spending income is the one state worth colouring. */
+.cfc-bar.out.over { background: var(--over); }
+.cfc-col.sel .cfc-bar.in { background: rgba(244, 239, 228, 0.6); }
+/* Hatched = the month's data cannot carry a comparison. */
+.cfc-col.flagged .cfc-bar {
+  background-image: repeating-linear-gradient(45deg, rgba(244,239,228,0.18) 0 3px, transparent 3px 6px);
+}
+.cfc-xlabel { font-size: 10.5px; color: var(--muted); letter-spacing: 0.02em; }
+
+.cfc-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.cfc-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.cfc-hint { margin-left: auto; }
+.cfc-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.cfc-dot.in { background: rgba(244, 239, 228, 0.42); }
+.cfc-dot.out { background: rgba(244, 239, 228, 0.18); }
+
+.cfc-detail { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--hairline); }
+.cfc-detail-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.cfc-detail-head strong { font-family: var(--font-display); font-size: 17px; font-weight: 400; }
+.cfc-flag {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em; font-weight: 650;
+  padding: 2px 7px; border-radius: 5px;
+  background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted);
+}
+.cfc-flag.warn {
+  background: color-mix(in srgb, var(--near) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--near) 40%, transparent);
+  color: var(--near);
+}
+.cfc-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 16px; }
+.cfc-detail-grid span { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.cfc-detail-grid em { font-style: normal; font-size: 12px; color: var(--muted); }
+.cfc-detail-grid b { font-size: 14px; font-weight: 600; }

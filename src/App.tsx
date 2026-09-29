@@ -52,7 +52,9 @@ export default function App() {
     // ↔ Dexie) runs its own 45s/focus/online loop inside initSync().
     const pull = () => void syncAllConnectors().catch(() => {})
     const boot = setTimeout(pull, 1800)
-    const iv = setInterval(pull, 4 * 60 * 1000)
+    // SimpleFIN refreshes once every 24h; lib/banks throttles the actual bank
+    // calls to 4/day. A 30-minute tick is plenty to catch the window opening.
+    const iv = setInterval(pull, 30 * 60 * 1000)
     window.addEventListener('focus', pull)
 
     // Kill stale builds: poke the service worker to check for a new deploy on a
@@ -80,14 +82,15 @@ export default function App() {
     }
   }, [])
 
-  const isHome = tab === 'home'
   const showMonthNav = tab === 'dashboard' || tab === 'insights' || tab === 'transactions'
   const activeLabel = TABS.find((t) => t.id === tab)?.label ?? ''
 
   const navButtons = (cls: 'tab' | 'side-tab') => {
-    // Mobile bar = the 4 daily destinations (Home via the wordmark; Categories is
-    // a settings screen, reached from Budget → "Manage categories & budgets").
-    const items = cls === 'tab' ? TABS.filter((t) => t.id !== 'home' && t.id !== 'categories') : TABS
+    // Mobile bar = the 5 daily destinations. Home is included so that landing on
+    // it shows an active tab instead of a bar with nothing selected. Categories
+    // stays out — it's a settings screen, reached from Budget → "Manage
+    // categories & budgets".
+    const items = cls === 'tab' ? TABS.filter((t) => t.id !== 'categories') : TABS
     return items.map((t) => (
       <button
         key={t.id}
@@ -168,7 +171,9 @@ export default function App() {
           </div>
         </main>
 
-        {!isHome && <nav className="tabbar">{navButtons('tab')}</nav>}
+        {/* Always present: .app-body already reserves 124px for it, and hiding
+            it on Home left you on a screen with no way out. */}
+        <nav className="tabbar">{navButtons('tab')}</nav>
       </div>
 
       {(editTxn || adding) && (

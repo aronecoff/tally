@@ -5,7 +5,12 @@ import { money } from '../lib/format'
 import { brokerageEnabled, connectBrokerage } from '../lib/brokerage'
 import { banksEnabled, syncAllConnectors } from '../lib/banks'
 import { BankConnectSheet } from './BankConnectSheet'
+import { squarify } from '../lib/treemap'
 import { Icon } from './Icon'
+
+/** Treemap canvas; the container is locked to this ratio so cells stay square-ish. */
+const MAP_W = 100
+const MAP_H = 64
 
 const TIERS: { type: AccountType; label: string; icon: string; liability?: boolean }[] = [
   { type: 'cash', label: 'Cash', icon: 'wallet' },
@@ -32,7 +37,7 @@ export function Accounts({ onSynced }: { onSynced?: () => void }) {
     setBusy(true)
     setSyncErr(null)
     setSyncMsg('Syncing…')
-    const { total, errors } = await syncAllConnectors()
+    const { total, errors } = await syncAllConnectors({ force: true })
     if (total === 0 && errors.length) {
       // Surface the auth prompt if that's why nothing synced, else the first error.
       setSyncMsg(null)
@@ -87,7 +92,7 @@ export function Accounts({ onSynced }: { onSynced?: () => void }) {
       .finally(() => setBusy(false))
   }, [])
 
-  const { netWorth, byTier } = useMemo(() => {
+  const { netWorth, assets, liabilities, byTier } = useMemo(() => {
     const byTier = new Map<AccountType, Account[]>()
     let assets = 0
     let liabilities = 0
@@ -98,8 +103,25 @@ export function Accounts({ onSynced }: { onSynced?: () => void }) {
       else assets += a.balance
     }
     for (const list of byTier.values()) list.sort((a, b) => a.sortOrder - b.sortOrder)
-    return { netWorth: assets - liabilities, byTier }
+    return { netWorth: assets - liabilities, assets, liabilities, byTier }
   }, [accounts])
+
+  // Balance-sheet map: area = size of the balance, colour = tier (red = owed).
+  // Area alone can't tell an asset from a debt, so the tier colour carries that
+  // distinction — otherwise a $10k savings account and a $10k card would read
+  // as the same thing.
+  const cells = useMemo(
+    () =>
+      squarify(
+        accounts
+          .map((a) => ({ key: String(a.id), value: Math.abs(a.balance), data: a }))
+          .filter((i) => i.value > 0)
+          .sort((x, y) => y.value - x.value),
+        MAP_W,
+        MAP_H,
+      ),
+    [accounts],
+  )
 
   return (
     <div className="accounts">
@@ -133,6 +155,74 @@ export function Accounts({ onSynced }: { onSynced?: () => void }) {
           ) : syncMsg ? (
             <span className="acct-sync-msg muted">{syncMsg}</span>
           ) : null}
+        </div>
+      )}
+
+      {/* Balance-sheet map — area = balance, colour = tier, red = owed */}
+      {cells.length > 0 && (
+        <div className="card-sect">
+          <div className="sect-row">
+            <span className="sect-title">Where your money lives</span>
+            <span className="sect-note">size = balance</span>
+          </div>
+          <div className="nwmap" style={{ aspectRatio: `${MAP_W} / ${MAP_H}` }}>
+            {cells.map((c) => {
+              const a = c.data
+              const owed = a.type === 'credit'
+              const big = c.rect.w >= 17 && c.rect.h >= 11
+              const mid = c.rect.w >= 10 && c.rect.h >= 7
+              // Brokerage/retirement accounts are usually named for the account
+              // TYPE ("Individual", "401(k)"), which is identical across
+              // providers — fall back to the institution so two purple
+              // "Individual" tiles don't read as the same account.
+              const label = /^(individual|joint|brokerage|401\(k\)|ira|roth ?ira|hsa|savings|checking)$/i.test(
+                a.name.trim(),
+              )
+                ? a.institution
+                : a.name
+              return (
+                <button
+                  key={c.key}
+                  className={`nwmap-tile ${a.type}`}
+                  style={{
+                    left: `calc(${(c.rect.x / MAP_W) * 100}% + 2px)`,
+                    top: `calc(${(c.rect.y / MAP_H) * 100}% + 2px)`,
+                    width: `calc(${(c.rect.w / MAP_W) * 100}% - 4px)`,
+                    height: `calc(${(c.rect.h / MAP_H) * 100}% - 4px)`,
+                  }}
+                  onClick={() => setEditing(a)}
+                  title={`${a.institution} ${a.name} — ${owed ? 'owed ' : ''}${money(a.balance)}`}
+                >
+                  {mid && (
+                    <span className={`nwmap-label ${big ? '' : 'tiny'}`}>
+                      <span className="nwmap-name">{label}</span>
+                      {big && (
+                        <span className="nwmap-amt num">
+                          {owed ? '−' : ''}{money(a.balance, { approx: true })}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          <div className="nwmap-key">
+            {TIERS.filter((t) => accounts.some((a) => a.type === t.type && a.balance !== 0)).map((t) => (
+              <span key={t.type}>
+                <i className={`nwmap-dot ${t.type}`} /> {t.liability ? 'owed' : t.label}
+              </span>
+            ))}
+            <span className="nwmap-key-hint">tap to update</span>
+          </div>
+          <div className="nwmap-foot">
+            <span className="num">{money(assets)}</span> owned
+            {liabilities > 0 && (
+              <> − <span className="num over">{money(liabilities)}</span> owed</>
+            )}
+            {' = '}
+            <strong className={`num ${netWorth < 0 ? 'over' : 'pos'}`}>{money(netWorth)}</strong>
+          </div>
         </div>
       )}
       </div>

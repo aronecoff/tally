@@ -1,6 +1,41 @@
 import SwiftUI
 import WebKit
 
+/// Tally's brand canvas colors, matching the web app's --bg in each theme.
+enum TallyTheme: String {
+    case dark, light
+
+    static let key = "tally.theme"
+    /// Last theme the page reported, so a cold launch paints the right canvas
+    /// before the page has loaded (no black-then-ink or ink-then-paper flash).
+    static var saved: TallyTheme {
+        TallyTheme(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .dark
+    }
+
+    var canvas: UIColor {
+        self == .dark
+            ? UIColor(red: 0.047, green: 0.016, blue: 0.078, alpha: 1) // Deep Ink #0C0414
+            : UIColor(red: 0.957, green: 0.937, blue: 0.894, alpha: 1) // Paper #F4EFE4
+    }
+    var ink: UIColor { self == .dark ? TallyTheme.light.canvas : TallyTheme.dark.canvas }
+    var sage: UIColor {
+        self == .dark
+            ? UIColor(red: 0.561, green: 0.627, blue: 0.514, alpha: 1) // #8FA083
+            : UIColor(red: 0.361, green: 0.416, blue: 0.322, alpha: 1) // #5C6A52
+    }
+    var style: UIUserInterfaceStyle { self == .dark ? .dark : .light }
+}
+
+/// WKUserContentController retains its handlers strongly; this breaks the
+/// controller → coordinator → web view → controller cycle.
+private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(_ target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
+        target?.userContentController(c, didReceive: m)
+    }
+}
+
 /// Full-screen WKWebView hosting the deployed Tally PWA. Persistent data store
 /// keeps the session + Dexie data across launches; `contentInsetAdjustmentBehavior
 /// = .never` hands safe-area handling to the web app's CSS (viewport-fit=cover +
@@ -16,14 +51,17 @@ struct WebView: UIViewRepresentable {
         config.allowsInlineMediaPlayback = true
         config.websiteDataStore = .default() // persist localStorage + IndexedDB
         config.applicationNameForUserAgent = "TallyNative" // web app hides the "install" hint inside the app
+        // The page posts "light" / "dark" whenever its theme changes.
+        config.userContentController.add(WeakMessageHandler(context.coordinator), name: "theme")
 
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
         web.allowsBackForwardNavigationGestures = true
         web.isOpaque = false
-        web.backgroundColor = .black
-        web.scrollView.backgroundColor = .black
+        let theme = TallyTheme.saved
+        web.backgroundColor = theme.canvas
+        web.scrollView.backgroundColor = theme.canvas
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.scrollView.bounces = false          // no outer rubber-band; the web app owns scrolling
         web.scrollView.alwaysBounceVertical = false
@@ -35,7 +73,7 @@ struct WebView: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
-                             UIAdaptivePresentationControllerDelegate {
+                             UIAdaptivePresentationControllerDelegate, WKScriptMessageHandler {
         private let appURL: URL
         private weak var web: WKWebView?
         // Popup sheets keyed by their web view, so window.close() can dismiss them.
@@ -45,7 +83,35 @@ struct WebView: UIViewRepresentable {
 
         init(url: URL) { self.appURL = url }
 
-        func attach(_ webView: WKWebView) { self.web = webView }
+        func attach(_ webView: WKWebView) {
+            self.web = webView
+            // Apply the remembered theme as soon as the view joins a window.
+            DispatchQueue.main.async { [weak self] in self?.apply(TallyTheme.saved) }
+        }
+
+        // ---- Theme bridge ------------------------------------------------------
+        func userContentController(_ controller: WKUserContentController,
+                                   didReceive message: WKScriptMessage) {
+            guard message.name == "theme",
+                  let raw = message.body as? String,
+                  let theme = TallyTheme(rawValue: raw) else { return }
+            UserDefaults.standard.set(theme.rawValue, forKey: TallyTheme.key)
+            apply(theme)
+        }
+
+        private var theme: TallyTheme = TallyTheme.saved
+
+        private func apply(_ theme: TallyTheme) {
+            self.theme = theme
+            guard let web else { return }
+            web.backgroundColor = theme.canvas
+            web.scrollView.backgroundColor = theme.canvas
+            // The window's interface style drives the status bar: light content
+            // on ink, dark content on paper.
+            web.window?.overrideUserInterfaceStyle = theme.style
+            offlineView?.removeFromSuperview()
+            if offlineView != nil { offlineView = nil; showOffline() }
+        }
 
         // ---- Connect portals: window.open() / target=_blank -------------------
         // SnapTrade (and future connectors) open their portal with window.open and
@@ -167,17 +233,17 @@ struct WebView: UIViewRepresentable {
             guard let web else { return }
             if offlineView == nil {
                 let overlay = UIView()
-                overlay.backgroundColor = .black
+                overlay.backgroundColor = theme.canvas
                 overlay.translatesAutoresizingMaskIntoConstraints = false
 
                 let title = UILabel()
                 title.text = "Can't reach Tally"
-                title.textColor = .white
+                title.textColor = theme.ink
                 title.font = .preferredFont(forTextStyle: .headline)
 
                 let detail = UILabel()
-                detail.text = "Check your connection — retrying automatically."
-                detail.textColor = .secondaryLabel
+                detail.text = "Check your connection. Retrying on its own."
+                detail.textColor = theme.ink.withAlphaComponent(0.62)
                 detail.font = .preferredFont(forTextStyle: .subheadline)
                 detail.numberOfLines = 0
                 detail.textAlignment = .center
@@ -185,6 +251,8 @@ struct WebView: UIViewRepresentable {
                 var buttonConfig = UIButton.Configuration.filled()
                 buttonConfig.title = "Retry now"
                 buttonConfig.cornerStyle = .capsule
+                buttonConfig.baseBackgroundColor = theme.sage
+                buttonConfig.baseForegroundColor = theme.canvas
                 let retry = UIButton(configuration: buttonConfig,
                                      primaryAction: UIAction { [weak self] _ in self?.retry() })
 

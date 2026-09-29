@@ -154,7 +154,9 @@ Deno.serve(async (req) => {
       if (!url) return json({ ok: false, error: "not connected" }, 400);
       const days = Math.min(365, Math.max(7, Number(body.days) || 120));
       const start = Math.floor(Date.now() / 1000) - days * 86400;
-      const res = await authFetch(url, `/accounts?start-date=${start}`);
+      // `pending=1` is REQUIRED: SimpleFIN omits pending/authorised-but-not-
+      // posted charges by default, which is why they never appeared in Tally.
+      const res = await authFetch(url, `/accounts?start-date=${start}&pending=1`);
       if (!res.ok) return json({ ok: false, error: `simplefin /accounts -> ${res.status}` }, 502);
       const data = await res.json().catch(() => ({}));
       const transactions = [];
@@ -169,6 +171,7 @@ Deno.serve(async (req) => {
             account,
             tier,
             posted: t?.transacted_at ?? t?.posted,
+            pending: !!t?.pending,
             amount: Number(t?.amount),
             description: t?.description || t?.payee || "",
             payee: t?.payee || "",

@@ -59,6 +59,7 @@ export function TransactionList({ month, categories, onEdit }: Props) {
               <span className="txn-main">
                 <span className="txn-note">{t.note || cat?.name || 'Uncategorized'}</span>
                 <span className="txn-sub">
+                  {t.pending && <span className="pending-chip">Pending</span>}
                   {dayLabel(t.date)}
                   {cat ? ` · ${cat.name}` : ''}
                   {t.account ? ` · ${t.account}` : ''}

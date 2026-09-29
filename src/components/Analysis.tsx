@@ -5,6 +5,7 @@ import { money } from '../lib/format'
 import { isFixedCategory } from '../lib/categorize'
 import { cleanMerchant } from '../lib/merchants'
 import { shiftMonth, monthLabel, currentMonth } from '../lib/dates'
+import { CashflowChart, type MonthPoint } from './CashflowChart'
 import { Icon } from './Icon'
 
 interface Props {
@@ -36,6 +37,34 @@ export function Analysis({ month, categories }: Props) {
     [],
   )
 
+  // Every transaction, for the full-history cashflow chart.
+  const allTxns = useLiveQuery(() => db.transactions.toArray(), [], [])
+
+  const history = useMemo<MonthPoint[]>(() => {
+    const by = new Map<string, { income: number; spend: number; n: number }>()
+    for (const t of allTxns) {
+      if (t.deleted) continue
+      const k = t.date.slice(0, 7)
+      const b = by.get(k) ?? { income: 0, spend: 0, n: 0 }
+      if (t.type === 'income') b.income += t.amount
+      else { b.spend += t.amount; b.n++ }
+      by.set(k, b)
+    }
+    const nowKey = currentMonth()
+    return [...by.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([m, b]) => ({
+        m,
+        income: b.income,
+        spend: b.spend,
+        partial: m === nowKey,
+        // A month with a handful of expenses is missing data, not frugal — the
+        // bank feed only reaches back so far and older months arrive gutted.
+        sparse: m !== nowKey && b.n < 10,
+      }))
+      .slice(-14)
+  }, [allTxns])
+
   const catById = useMemo(
     () => new Map(categories.filter((c) => c.id != null).map((c) => [c.id!, c])),
     [categories],
@@ -55,7 +84,10 @@ export function Analysis({ month, categories }: Props) {
       }
       spend += t.amount
       spendCount++
-      byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
+      // Normalise: an id that no longer maps to a live category is Uncategorized,
+      // otherwise each tombstoned id renders as its own "Uncategorized" row.
+      const key = t.categoryId != null && catById.has(t.categoryId) ? t.categoryId : null
+      byCat.set(key, (byCat.get(key) ?? 0) + t.amount)
       // Group by cleaned merchant, or store numbers split one habit into many.
       const name = cleanMerchant(t.note || '') || 'Other'
       const m = merch.get(name) ?? { n: 0, amt: 0 }
@@ -72,7 +104,8 @@ export function Analysis({ month, categories }: Props) {
       if (t.deleted || t.type !== 'expense') continue
       if (isCurrent && Number(t.date.slice(8, 10)) > dayOfMonth) continue
       prevSpend += t.amount
-      prevByCat.set(t.categoryId, (prevByCat.get(t.categoryId) ?? 0) + t.amount)
+      const pkey = t.categoryId != null && catById.has(t.categoryId) ? t.categoryId : null
+      prevByCat.set(pkey, (prevByCat.get(pkey) ?? 0) + t.amount)
     }
 
     const keys = new Set([...byCat.keys(), ...prevByCat.keys()])
@@ -92,7 +125,7 @@ export function Analysis({ month, categories }: Props) {
     const cats = [...byCat.entries()].map(([id, amt]) => ({ id, amt })).sort((x, y) => y.amt - x.amt)
     const footed = cats.reduce((s, c) => s + c.amt, 0)
     return { income, spend, spendCount, movers, habits, cats, prevSpend, footed }
-  }, [txns, prevTxns, isCurrent, dayOfMonth])
+  }, [txns, prevTxns, isCurrent, dayOfMonth, catById])
 
   // Fixed vs flexible: what's locked in vs what you actually control.
   const fixed = a.cats.reduce((s, c) => {
@@ -269,6 +302,13 @@ export function Analysis({ month, categories }: Props) {
       )}
 
       {/* 5 — Savings trend */}
+      {history.length > 1 && (
+        <>
+          <div className="an-section-title">Money in vs out</div>
+          <CashflowChart months={history} />
+        </>
+      )}
+
       <div className="an-section-title">Saved by month</div>
       <ul className="an-savetrend">
         {trend.map((t) => (

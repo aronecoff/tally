@@ -32,6 +32,8 @@ export interface Transaction {
   note: string
   /** User-edited (recategorized / redated) — bank re-syncs must not overwrite it. */
   manual?: boolean
+  /** Authorised but not yet posted by the bank. Counts toward spend, shown as pending. */
+  pending?: boolean
   deleted?: boolean
   createdAt: number
   updatedAt: number

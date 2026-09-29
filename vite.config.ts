@@ -14,6 +14,14 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+      // Take over the moment a new build is installed. Without these a fresh
+      // deploy sat waiting behind the old worker, so the app kept running the
+      // previous bundle no matter how many times it was relaunched.
+      workbox: {
+        clientsClaim: true,
+        skipWaiting: true,
+        cleanupOutdatedCaches: true,
+      },
       manifest: {
         name: 'Tally — Personal Finance',
         short_name: 'Tally',

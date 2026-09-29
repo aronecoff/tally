@@ -55,6 +55,7 @@ function txToRemote(t: Transaction, userId: string, catUidById: Map<number, stri
     account: t.account,
     note: t.note,
     manual: !!t.manual,
+    pending: !!t.pending,
     deleted: !!t.deleted,
     created_at: iso(t.createdAt),
     updated_at: iso(t.updatedAt),
@@ -75,7 +76,11 @@ async function pull(): Promise<void> {
     // Match by name+kind too, so a device's locally-seeded category ADOPTS the
     // cloud row on first sign-in instead of creating a duplicate (categories are
     // a fixed, name-identified set — never two "Groceries").
-    const catByName = new Map(localCats.map((c) => [`${c.name.toLowerCase()}|${c.kind}`, c]))
+    // Only LIVE rows are adoption candidates — adopting a tombstoned twin
+    // resurrects a deleted category and leaves the real one orphaned.
+    const catByName = new Map(
+      localCats.filter((c) => !c.deleted).map((c) => [`${c.name.toLowerCase()}|${c.kind}`, c]),
+    )
     for (const r of rcats ?? []) {
       const local = catByUid.get(r.id)
       const fields: Category = {
@@ -98,9 +103,32 @@ async function pull(): Promise<void> {
       }
     }
 
+    // Self-heal: collapse local duplicates before resolving anything, so a device
+    // that accumulated two "Groceries" rows converges instead of splitting spend.
+    await dedupeLocalCategories()
+    await repointDeletedCategories()
+
     // uid -> local category id, for resolving transaction.category_id
     const cats2 = await db.categories.toArray()
     const localIdByCatUid = new Map(cats2.filter((c) => c.uid).map((c) => [c.uid!, c.id!]))
+    // NAME-based fallback. A device whose local categories carry different uids
+    // than the cloud's (duplicate sets, partial seeds) would otherwise resolve
+    // every category_id to null and silently dump months of real spending into
+    // "Uncategorized" — with the cloud perfectly correct the whole time.
+    const localIdByCatName = new Map(
+      cats2.filter((c) => !c.deleted).map((c) => [`${c.name.trim().toLowerCase()}|${c.kind}`, c.id!]),
+    )
+    const remoteCatKeyByUid = new Map(
+      (rcats ?? []).map((r) => [r.id as string, `${String(r.name).trim().toLowerCase()}|${r.kind}`]),
+    )
+    const resolveCat = (remoteId: string | null): number | null => {
+      if (!remoteId) return null
+      const byUid = localIdByCatUid.get(remoteId)
+      if (byUid != null) return byUid
+      const key = remoteCatKeyByUid.get(remoteId)
+      if (!key) return null
+      return localIdByCatName.get(key) ?? null
+    }
 
     const { data: rtx, error: e2 } = await supabase.from('transactions').select('*')
     if (e2) throw e2
@@ -113,10 +141,11 @@ async function pull(): Promise<void> {
         date: r.date,
         amount: Number(r.amount),
         type: r.type,
-        categoryId: r.category_id ? localIdByCatUid.get(r.category_id) ?? null : null,
+        categoryId: resolveCat(r.category_id ?? null),
         account: r.account ?? '',
         note: r.note ?? '',
         manual: !!r.manual,
+        pending: !!r.pending,
         deleted: !!r.deleted,
         createdAt: Date.parse(r.created_at),
         updatedAt: Date.parse(r.updated_at),
@@ -132,6 +161,58 @@ async function pull(): Promise<void> {
     }
   } finally {
     applyingRemote = false
+  }
+}
+
+/**
+ * Move transactions off tombstoned categories onto the live category of the same
+ * name+kind. A transaction pointing at a deleted category is invisible to every
+ * view that iterates live categories — so its spend silently vanished from the
+ * budget while still counting in the month total, and it surfaced as a SECOND
+ * "Uncategorized" row.
+ */
+async function repointDeletedCategories(): Promise<void> {
+  const cats = await db.categories.toArray()
+  const live = new Map<string, number>()
+  for (const c of cats) {
+    if (c.deleted || c.id == null) continue
+    live.set(`${c.name.trim().toLowerCase()}|${c.kind}`, c.id)
+  }
+  for (const dead of cats) {
+    if (!dead.deleted || dead.id == null) continue
+    const target = live.get(`${dead.name.trim().toLowerCase()}|${dead.kind}`)
+    if (target == null || target === dead.id) continue
+    await db.transactions.where('categoryId').equals(dead.id).modify({ categoryId: target })
+  }
+}
+
+/**
+ * Merge local categories that share a name+kind onto a single row, repointing
+ * their transactions first. Duplicates arise when a device seeds defaults before
+ * a sign-in pull, and they quietly split one budget across two rows.
+ */
+async function dedupeLocalCategories(): Promise<void> {
+  const cats = await db.categories.toArray()
+  const byKey = new Map<string, typeof cats>()
+  for (const c of cats) {
+    if (c.deleted || c.id == null) continue
+    const k = `${c.name.trim().toLowerCase()}|${c.kind}`
+    const list = byKey.get(k) ?? []
+    list.push(c)
+    byKey.set(k, list)
+  }
+  for (const list of byKey.values()) {
+    if (list.length < 2) continue
+    // Keep cloud identity first (has a uid), then the most recently touched.
+    list.sort((a, b) => Number(!!b.uid) - Number(!!a.uid) || b.updatedAt - a.updatedAt)
+    const keep = list[0]
+    for (const dup of list.slice(1)) {
+      await db.transactions.where('categoryId').equals(dup.id!).modify({ categoryId: keep.id! })
+      // A uid-bearing row exists in the cloud: tombstone so the merge propagates.
+      // A uid-less row is a local artefact and can just go.
+      if (dup.uid) await db.categories.update(dup.id!, { deleted: true, updatedAt: Date.now() })
+      else await db.categories.delete(dup.id!)
+    }
   }
 }
 

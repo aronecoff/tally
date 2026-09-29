@@ -11,64 +11,52 @@ import { writeFileSync } from 'node:fs'
 import sharp from 'sharp'
 
 // ---- The design, one place ---------------------------------------------------
-// 512 viewBox. `rounded` bakes the card corners + rim (for favicon/PWA);
-// full-bleed variants let the OS apply its own mask. `scale` shrinks the mark
-// toward center (maskable safe zone).
+// The mark is the app's name drawn literally: four strokes and the cross that
+// closes a group of five. Brand palette only — Deep Ink field, Paper cream
+// strokes, one Sage accent. No gradients, no glow: the old cyan→purple mark
+// predated the rebrand and matched nothing in the app.
+//
+// 512 viewBox. `rounded` bakes the card corners (for favicon/PWA); full-bleed
+// variants let the OS apply its own mask. `scale` shrinks the mark toward
+// center for the maskable safe zone.
+const INK = '#0C0414'
+const PAPER = '#F4EFE4'
+const SAGE = '#8FA083'
+
 function svg({ rounded = true, scale = 1 } = {}) {
   const rx = rounded ? 116 : 0
   const s = 512
   const t = (256 * (1 - scale)).toFixed(1)
+  // Four cream uprights, evenly spaced and centred on the canvas.
+  const uprights = [184, 232, 280, 328]
+    .map((x) => `<line x1="${x}" y1="165" x2="${x}" y2="347"/>`)
+    .join('')
   return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bg" cx="0.5" cy="0.34" r="0.95">
-      <stop offset="0" stop-color="#161629"/>
-      <stop offset="1" stop-color="#07070e"/>
+    <!-- A barely-there lift so the field is not a flat black hole on a home
+         screen. Below the threshold where it reads as a gradient. -->
+    <radialGradient id="lift" cx="0.5" cy="0.32" r="0.9">
+      <stop offset="0" stop-color="${PAPER}" stop-opacity="0.055"/>
+      <stop offset="1" stop-color="${PAPER}" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3ce8ff"/>
-      <stop offset="0.45" stop-color="#6d7cff"/>
-      <stop offset="1" stop-color="#b34dff"/>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/>
-      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="glowWide" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="24"/>
-    </filter>
-    <filter id="glowTight" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="9"/>
-    </filter>
   </defs>
-  <rect width="${s}" height="${s}" rx="${rx}" fill="url(#bg)"/>
+  <rect width="${s}" height="${s}" rx="${rx}" fill="${INK}"/>
+  <rect width="${s}" height="${s}" rx="${rx}" fill="url(#lift)"/>
   <g transform="translate(${t} ${t}) scale(${scale})">
-    <g filter="url(#glowWide)" opacity="0.4">
-      <rect x="142" y="146" width="228" height="58" rx="29" fill="url(#t)"/>
-      <rect x="227" y="146" width="58" height="242" rx="29" fill="url(#t)"/>
-    </g>
-    <g filter="url(#glowTight)" opacity="0.55">
-      <rect x="142" y="146" width="228" height="58" rx="29" fill="url(#t)"/>
-      <rect x="227" y="146" width="58" height="242" rx="29" fill="url(#t)"/>
-    </g>
-    <g fill="url(#t)">
-      <rect x="142" y="146" width="228" height="58" rx="29"/>
-      <rect x="227" y="146" width="58" height="242" rx="29"/>
-    </g>
-    <g fill="url(#sheen)" opacity="0.2">
-      <rect x="142" y="146" width="228" height="58" rx="29"/>
-      <rect x="227" y="146" width="58" height="242" rx="29"/>
-    </g>
-  </g>${rounded ? `
-  <rect x="2" y="2" width="${s - 4}" height="${s - 4}" rx="${rx - 2}" fill="none" stroke="url(#t)" stroke-width="2.5" opacity="0.25"/>` : ''}
+    <g stroke="${PAPER}" stroke-width="26" stroke-linecap="round">${uprights}</g>
+    <!-- The fifth mark. Its ends stop ON the outer uprights: run it past them
+         and the glyph reads as a "prohibited" slash instead of a tally. -->
+    <line x1="184" y1="332" x2="328" y2="180" stroke="${SAGE}" stroke-width="26" stroke-linecap="round"/>
+  </g>
 </svg>
 `
 }
 
-const render = (code, size) => sharp(Buffer.from(code), { density: 300 }).resize(size, size)
+const render = (code, size) => sharp(Buffer.from(code), { density: 384 }).resize(size, size)
 
 const rounded = svg({ rounded: true })
 const fullBleed = svg({ rounded: false })
-const maskable = svg({ rounded: false, scale: 0.92 })
+const maskable = svg({ rounded: false, scale: 0.82 })
 
 writeFileSync('public/icon.svg', rounded)
 await render(rounded, 192).png().toFile('public/pwa-192.png')

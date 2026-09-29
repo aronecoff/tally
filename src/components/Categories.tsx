@@ -84,8 +84,17 @@ function CategoryEditor({ category, showLimit }: { category: Category; showLimit
 
   async function remove() {
     if (category.id == null) return
-    if (!window.confirm(`Delete "${category.name}"? Its transactions will become uncategorized.`)) return
-    await db.transactions.where('categoryId').equals(category.id).modify({ categoryId: null, updatedAt: Date.now() })
+    // Re-home the transactions rather than orphaning them. Nulling categoryId
+    // silently drops that spending out of every budget and chart — which is
+    // exactly what happened when a duplicate category set was cleaned up and
+    // months of real spending fell into "Uncategorized".
+    const fallback = await db.categories
+      .filter((c) => !c.deleted && c.kind === category.kind && c.name.toLowerCase() === 'other' && c.id !== category.id)
+      .first()
+    const target = fallback?.id ?? null
+    const where = target ? `moved to "${fallback!.name}"` : 'become uncategorized'
+    if (!window.confirm(`Delete "${category.name}"? Its transactions will be ${where}.`)) return
+    await db.transactions.where('categoryId').equals(category.id).modify({ categoryId: target, updatedAt: Date.now() })
     await db.categories.update(category.id, { deleted: true, updatedAt: Date.now() })
   }
 

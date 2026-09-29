@@ -1,43 +1,18 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bg" cx="0.5" cy="0.34" r="0.95">
-      <stop offset="0" stop-color="#161629"/>
-      <stop offset="1" stop-color="#07070e"/>
+    <!-- A barely-there lift so the field is not a flat black hole on a home
+         screen. Below the threshold where it reads as a gradient. -->
+    <radialGradient id="lift" cx="0.5" cy="0.32" r="0.9">
+      <stop offset="0" stop-color="#F4EFE4" stop-opacity="0.055"/>
+      <stop offset="1" stop-color="#F4EFE4" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#3ce8ff"/>
-      <stop offset="0.45" stop-color="#6d7cff"/>
-      <stop offset="1" stop-color="#b34dff"/>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/>
-      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="glowWide" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="24"/>
-    </filter>
-    <filter id="glowTight" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="9"/>
-    </filter>
   </defs>
-  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="#0C0414"/>
+  <rect width="512" height="512" rx="116" fill="url(#lift)"/>
   <g transform="translate(0.0 0.0) scale(1)">
-    <g filter="url(#glowWide)" opacity="0.4">
-      <rect x="142" y="146" width="228" height="58" rx="29" fill="url(#t)"/>
-      <rect x="227" y="146" width="58" height="242" rx="29" fill="url(#t)"/>
-    </g>
-    <g filter="url(#glowTight)" opacity="0.55">
-      <rect x="142" y="146" width="228" height="58" rx="29" fill="url(#t)"/>
-      <rect x="227" y="146" width="58" height="242" rx="29" fill="url(#t)"/>
-    </g>
-    <g fill="url(#t)">
-      <rect x="142" y="146" width="228" height="58" rx="29"/>
-      <rect x="227" y="146" width="58" height="242" rx="29"/>
-    </g>
-    <g fill="url(#sheen)" opacity="0.2">
-      <rect x="142" y="146" width="228" height="58" rx="29"/>
-      <rect x="227" y="146" width="58" height="242" rx="29"/>
-    </g>
+    <g stroke="#F4EFE4" stroke-width="26" stroke-linecap="round"><line x1="184" y1="165" x2="184" y2="347"/><line x1="232" y1="165" x2="232" y2="347"/><line x1="280" y1="165" x2="280" y2="347"/><line x1="328" y1="165" x2="328" y2="347"/></g>
+    <!-- The fifth mark. Its ends stop ON the outer uprights: run it past them
+         and the glyph reads as a "prohibited" slash instead of a tally. -->
+    <line x1="184" y1="332" x2="328" y2="180" stroke="#8FA083" stroke-width="26" stroke-linecap="round"/>
   </g>
-  <rect x="2" y="2" width="508" height="508" rx="114" fill="none" stroke="url(#t)" stroke-width="2.5" opacity="0.25"/>
 </svg>

@@ -50,6 +50,17 @@ const EXPENSE_RULES: Rule[] = [
   { match: /^apple$|apple ?(services|music|tv)/i, category: 'Subscriptions' },
   // Installment purchases are shopping regardless of the financing rail.
   { match: /pay ?in ?4|affirm|klarna|afterpay/i, category: 'Shopping' },
+  // Merchants whose raw bank descriptors are too abbreviated for the generic
+  // rules to catch.
+  
+  
+  
+  
+  
+  
+  // Brokerage-issued card bill. When the card itself is not connected, this payment
+  // is the ONLY visibility we have into what was charged on it — count it.
+  { match: /robinhood.*(ccb|payment)/i, category: 'Other' },
   // Person-to-person payments and cash: real spending, bucketed visibly in
   // Other (recategorize by hand when the recipient matters).
   { match: /\bzelle\b|atm withdrawal/i, category: 'Other' },

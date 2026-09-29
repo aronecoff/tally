@@ -46,6 +46,41 @@ async function invoke<T>(action: string, body: Record<string, unknown> = {}): Pr
   return data as T
 }
 
+/**
+ * SimpleFIN refreshes upstream data ONCE every 24h and expects ~24 requests/day.
+ * The app was calling it on boot, on every window focus, AND every 4 minutes
+ * (2 calls each) — roughly 720 requests/day, ~30x over budget. The bridge
+ * answers that with 403 Forbidden, which looks exactly like a revoked token.
+ * Hence a persisted floor between automatic fetches; polling faster than the
+ * upstream refresh cannot surface newer data anyway.
+ */
+const BANK_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000 // 4 automatic fetches/day
+const LAST_FETCH_KEY = 'tally:lastBankFetchAt'
+
+function lastBankFetchAt(): number {
+  try {
+    return Number(localStorage.getItem(LAST_FETCH_KEY)) || 0
+  } catch {
+    return 0
+  }
+}
+function markBankFetched(): void {
+  try {
+    localStorage.setItem(LAST_FETCH_KEY, String(Date.now()))
+  } catch {
+    /* private mode — falls back to per-session throttling */
+  }
+}
+/** True when an automatic bank fetch is due. `force` = explicit user action. */
+export function bankFetchDue(force = false): boolean {
+  return force || Date.now() - lastBankFetchAt() >= BANK_MIN_INTERVAL_MS
+}
+/** Minutes until the next automatic bank refresh (0 when due now). */
+export function minutesUntilBankRefresh(): number {
+  const due = lastBankFetchAt() + BANK_MIN_INTERVAL_MS - Date.now()
+  return due <= 0 ? 0 : Math.ceil(due / 60000)
+}
+
 /** Whether a SimpleFIN access link is already stored server-side. */
 export async function bankStatus(): Promise<boolean> {
   try {
@@ -80,10 +115,16 @@ export async function syncBanks(): Promise<number> {
   return incoming.length
 }
 
+// NOTE on Robinhood: a blanket /\brobinhood\b/ used to sit in here, which hid
+// BOTH brokerage funding AND a Robinhood-issued card bill ("Robinhood Payment …
+// CCB", CCB = Coastal Community Bank, the card's issuer). When that card is not a
+// connected account, its purchases never arrive — excluding the payment too
+// made that whole card's spending invisible on both sides. Only genuine
+// brokerage funding ("ROBINHOOD DEBITS") is excluded now.
 // Money-movement that must NOT count as spending or income: internal transfers,
 // card payments, investment funding (Robinhood/Webull/brokerages), and bank
 // reversals (returned/declined). Zelle is handled separately (account-aware).
-const EXCLUDE_RE = /\btransfer\b|autopay|auto ?pay|online (payment|pmt|banking)|card ?payment|\bcredit card\b|payment thank ?you|\bpymt\b|\bxfer\b|web ?xfr|e-?transfer|bill ?pay|e-?payment|\bach\b.*(pmt|payment|debit|credit)|\bwire\b|to (savings|checking)|from (savings|checking)|balance ?payment|statement ?credit|\brobinhood\b|\bwebull\b|interactive ?brokers|\bschwab\b|\bfidelity\b|\bcoinbase\b|\bvanguard\b|\bbetterment\b|\bacorns\b|brokerage|returned ?check|declin|amex ?send|sav (incr|decr)ease int/i
+const EXCLUDE_RE = /\btransfer\b|autopay|auto ?pay|online (payment|pmt|banking)|card ?payment|\bcredit card\b|payment thank ?you|\bpymt\b|\bxfer\b|web ?xfr|e-?transfer|bill ?pay|e-?payment|\bach\b.*(pmt|payment|debit|credit)|\bwire\b|to (savings|checking)|from (savings|checking)|balance ?payment|statement ?credit|robinhood ?debits|robinhood ?instant|\bwebull\b|interactive ?brokers|\bschwab\b|\bfidelity\b|\bcoinbase\b|\bvanguard\b|\bbetterment\b|\bacorns\b|brokerage|returned ?check|declin|amex ?send|sav (incr|decr)ease int/i
 
 interface SyncedTx {
   sourceTxId: string
@@ -95,6 +136,7 @@ interface SyncedTx {
   payee: string
   memo: string
   mcc: string | null
+  pending?: boolean
 }
 
 function isoFromUnix(sec: number): string {
@@ -155,7 +197,10 @@ function detectTransferIds(txs: SyncedTx[]): Set<string> {
  * fallback). Reconciles: rows now classified as transfers are removed, so
  * re-syncing corrects earlier over-counts. Idempotent (uid = sf:<tx id>).
  */
-export async function syncBankTransactions(days = 120): Promise<number> {
+// 365, not 120: the banks return everything they have (in practice ~4 months)
+// and a 120-day request was silently dropping a THIRD of the history — the app
+// held barely half of one month's transactions.
+export async function syncBankTransactions(days = 365): Promise<number> {
   let data: { ok: boolean; transactions: SyncedTx[] }
   try {
     data = await invoke<{ ok: boolean; transactions: SyncedTx[] }>('transactions', { days })
@@ -223,6 +268,7 @@ export async function syncBankTransactions(days = 120): Promise<number> {
       categoryId,
       account: acct,
       note: t.payee || t.description || '',
+      pending: !!t.pending,
       createdAt: now,
       updatedAt: now,
     } as Transaction)
@@ -246,7 +292,18 @@ export async function syncBankTransactions(days = 120): Promise<number> {
   // candidate for `desired` and must not be reconciled away. Without this the
   // whole history beyond the window was tombstoned on every single sync.
   // One day of slack absorbs client/server clock skew at the boundary.
-  const windowStart = isoFromUnix(Math.floor(Date.now() / 1000) - (days + 1) * 86400)
+  // Derive the window from what the bank ACTUALLY returned, not from what we
+  // asked for: providers routinely return a shorter span than `days`, and every
+  // real row falling in that gap was being tombstoned one payday at a time.
+  // Whichever boundary is LATER wins, so we only ever reconcile rows we can see.
+  const requestedStart = isoFromUnix(Math.floor(Date.now() / 1000) - (days + 1) * 86400)
+  let oldestReturned = Infinity
+  for (const t of incoming) {
+    const p = Number(t.posted)
+    if (Number.isFinite(p) && p < oldestReturned) oldestReturned = p
+  }
+  const returnedStart = Number.isFinite(oldestReturned) ? isoFromUnix(oldestReturned) : requestedStart
+  const windowStart = returnedStart > requestedStart ? returnedStart : requestedStart
   // Likewise, an account missing from this payload (one bank erroring, a partial
   // response) must not mass-delete that account's in-window rows.
   const seenAccounts = new Set(incoming.map((t) => t.account || ''))
@@ -276,13 +333,15 @@ export async function syncBankTransactions(days = 120): Promise<number> {
       } else if (
         !ex.manual &&
         (ex.categoryId !== row.categoryId || ex.type !== row.type ||
-          ex.amount !== row.amount || ex.date !== row.date)
+          ex.amount !== row.amount || ex.date !== row.date ||
+          !!ex.pending !== !!row.pending)
       ) {
         // Row already present but our classification improved — re-apply it so a
         // re-sync fully re-categorizes existing transactions in place. Rows the
         // user edited by hand (`manual`) are pinned: the bank never overwrites them.
         await db.transactions.update(ex.id!, {
-          categoryId: row.categoryId, amount: row.amount, type: row.type, date: row.date, updatedAt: now,
+          categoryId: row.categoryId, amount: row.amount, type: row.type, date: row.date,
+          pending: row.pending, updatedAt: now,
         })
       }
     }
@@ -296,31 +355,86 @@ export async function syncBankTransactions(days = 120): Promise<number> {
 }
 
 /**
+ * Self-heal: file any uncategorised, non-manual transaction using the same rules
+ * the bank sync uses.
+ *
+ * A device whose categories were briefly broken (duplicate sets, a uid that
+ * failed to resolve) ends up holding rows that are uncategorised locally AND
+ * stamped NEWER than the corrected cloud rows — so last-write-wins means no pull
+ * will ever fix them. Re-deriving locally is what breaks that stalemate; it
+ * needs no network and cannot be out-voted by a timestamp.
+ */
+export async function recategorizeUncategorized(): Promise<number> {
+  const cats = await db.categories.filter((c) => !c.deleted).toArray()
+  if (cats.length === 0) return 0
+  const byName = new Map<string, { id: number; kind: string }[]>()
+  for (const c of cats) {
+    if (c.id == null) continue
+    const k = c.name.trim().toLowerCase()
+    const list = byName.get(k) ?? []
+    list.push({ id: c.id, kind: c.kind })
+    byName.set(k, list)
+  }
+
+  // NOTE: `manual` rows are included on purpose. That flag means "the user chose
+  // this, don't let the bank overwrite it" — but an EMPTY category was never a
+  // choice, so filling one in destroys nothing. Excluding them left the largest
+  // orphan of all (a pinned rent charge) permanently uncategorised.
+  const orphans = await db.transactions
+    .filter((t) => !t.deleted && t.categoryId == null)
+    .toArray()
+  if (orphans.length === 0) return 0
+
+  const now = Date.now()
+  let fixed = 0
+  for (const t of orphans) {
+    const guess = categorize({ description: t.note, payee: t.note, kind: t.type })
+    if (!guess) continue
+    const cat = byName
+      .get(guess.trim().toLowerCase())
+      ?.find((c) => (c.kind === 'income') === (t.type === 'income'))
+    if (!cat) continue
+    await db.transactions.update(t.id!, { categoryId: cat.id, updatedAt: now })
+    fixed++
+  }
+  return fixed
+}
+
+/**
  * Refresh every connector — brokerage balances, bank balances, and real
  * transactions — independently. `total` counts live ACCOUNTS (not transactions);
  * transaction-sync failures are non-blocking.
  */
-let syncInFlight: Promise<{ total: number; errors: string[] }> | null = null
+let syncInFlight: Promise<{ total: number; errors: string[]; bankSkipped?: boolean }> | null = null
 
 /** Coalesces overlapping callers (boot timer, focus, 4-minute interval, Accounts
  *  mount) onto one run. Two concurrent runs each saw an empty table and both
  *  inserted, duplicating every bank transaction and account. */
-export function syncAllConnectors(): Promise<{ total: number; errors: string[] }> {
+export function syncAllConnectors(
+  opts: { force?: boolean } = {},
+): Promise<{ total: number; errors: string[]; bankSkipped?: boolean }> {
   if (syncInFlight) return syncInFlight
-  syncInFlight = runAllConnectors().finally(() => { syncInFlight = null })
+  syncInFlight = runAllConnectors(opts.force ?? false).finally(() => { syncInFlight = null })
   return syncInFlight
 }
 
-async function runAllConnectors(): Promise<{ total: number; errors: string[] }> {
+async function runAllConnectors(force: boolean): Promise<{ total: number; errors: string[]; bankSkipped?: boolean }> {
   // Device sync FIRST: pull the cloud's truth (incl. `manual` pins and moved
   // dates) into Dexie before the bank overlay runs. Without this ordering, a
   // fresh boot ran the bank reconcile against pin-unaware local rows, re-dated
   // them from raw bank data, and pushed that over the user's edits.
   await syncNow().catch(() => {})
+  // Repair anything the pull could not fix on its own, then let the debounced
+  // push carry the result back up.
+  await recategorizeUncategorized().catch(() => {})
+  // Brokerage has its own quota and is cheap; the BANK pair is the rate-limited
+  // one, so it alone is gated behind the interval.
+  const doBank = bankFetchDue(force)
+  if (doBank) markBankFetched()
   const [broker, bank, tx] = await Promise.allSettled([
     syncBrokerages(),
-    syncBanks(),
-    syncBankTransactions(),
+    doBank ? syncBanks() : Promise.resolve(0),
+    doBank ? syncBankTransactions() : Promise.resolve(0),
   ])
   let total = 0
   const errors: string[] = []
@@ -331,5 +445,5 @@ async function runAllConnectors(): Promise<{ total: number; errors: string[] }> 
   if (tx.status === 'rejected' && total === 0 && errors.length === 0) {
     errors.push(tx.reason instanceof Error ? tx.reason.message : 'Sync failed')
   }
-  return { total, errors }
+  return { total, errors, bankSkipped: !doBank }
 }

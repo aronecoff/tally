@@ -15,8 +15,11 @@ struct TallyApp: App {
         WindowGroup {
             WebView(url: URL(string: "https://aronecoff.github.io/tally/")!)
                 .ignoresSafeArea()          // let the web app own the notch / home-bar insets
-                .preferredColorScheme(.dark) // Tally defaults to its dark liquid-glass theme
                 .statusBarHidden(false)
+            // No .preferredColorScheme here: forcing .dark left cream status-bar
+            // text on the cream page in light mode. The page reports its theme
+            // over the "theme" message handler and WebView applies it to the
+            // window (status bar, launch background, offline screen).
         }
     }
 }

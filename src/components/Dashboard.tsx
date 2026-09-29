@@ -5,7 +5,9 @@ import { money } from '../lib/format'
 import { isFixedCategory } from '../lib/categorize'
 import { paceProjector } from '../lib/projection'
 import { monthLabel, currentMonth, dayLabel } from '../lib/dates'
+import { BudgetWheel, type WheelSlice } from './BudgetWheel'
 import { Icon } from './Icon'
+
 
 interface Props {
   month: string
@@ -101,6 +103,26 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
     return { income, expense, net: income - expense, rows, totalLimit, projectedTotal: p.monthEnd(catSpends, expense), canProject: p.canProject && isCurrent }
   }, [txns, categories, isCurrent, daysInMonth, dayOfMonth])
 
+  // Where an even spender would be today (day 21 of 30 → 70% of the month gone).
+  // Drawn as a tick on each bar so "ahead of pace" is visible, not calculated.
+  const paceP = isCurrent && daysInMonth > 0 ? Math.min(100, (dayOfMonth / daysInMonth) * 100) : null
+
+  // Wheel slices: angle = what's committed to a category, radial fill = consumed.
+  const wheelSlices = useMemo<WheelSlice[]>(
+    () =>
+      data.rows
+        .map((r) => ({
+          key: r.id == null ? 'uncat' : String(r.id),
+          name: r.name,
+          spent: r.spent,
+          limit: r.limit,
+          state: r.state,
+        }))
+        .filter((s) => (s.limit > 0 ? s.limit : s.spent) > 0)
+        .sort((a, b) => (b.limit || b.spent) - (a.limit || a.spent)),
+    [data.rows],
+  )
+
   const hasLimit = data.totalLimit > 0
   const over = hasLimit && data.expense > data.totalLimit
   const pct = hasLimit ? Math.min(100, (data.expense / data.totalLimit) * 100) : 0
@@ -137,6 +159,30 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
           <div><span className="bud-mini-label">Kept</span><span className={`num ${data.net >= 0 ? 'pos' : 'over'}`}>{money(data.net, { sign: true })}</span></div>
         </div>
       </div>
+
+      {/* Budget wheel — angle = allocation, radial fill = how much is consumed */}
+      {wheelSlices.length > 0 && (
+        <div className="card-sect">
+          <div className="sect-row">
+            <span className="sect-title">The shape of your month</span>
+            <span className="sect-note">tap a slice</span>
+          </div>
+          <BudgetWheel
+            slices={wheelSlices}
+            totalLimit={data.totalLimit}
+            totalSpent={data.expense}
+            selected={open}
+            onSelect={(k) => {
+              setOpen(k)
+              if (k) {
+                requestAnimationFrame(() =>
+                  document.getElementById(`bud-${k}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+                )
+              }
+            }}
+          />
+        </div>
+      )}
       </div>
 
       <div className="dash-col">
@@ -158,7 +204,7 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
               const fill = r.state === 'over' ? 'over' : r.state === 'pace' || r.state === 'near' ? 'pace' : r.state === 'none' ? 'nobudget' : 'ok'
               const tile = r.state === 'over' ? 'over' : r.state === 'pace' || r.state === 'near' ? 'pace' : r.state === 'ok' ? 'ok' : ''
               return (
-                <li key={key} className={`bud-cat ${expanded ? 'open' : ''}`}>
+                <li key={key} id={`bud-${key}`} className={`bud-cat ${expanded ? 'open' : ''}`}>
                   <button className="bud-cat-head" onClick={() => setOpen(expanded ? null : key)}>
                     <span className={`cat-tile sm ${tile}`}><Icon name={r.icon} size={16} /></span>
                     <div className="traj-main">
@@ -172,6 +218,16 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
                       {has && (
                         <div className="traj-bar">
                           <div className={`traj-fill ${fill}`} style={{ width: `${barPct}%` }} />
+                          {/* Pace tick: fill past this mark = spending faster than
+                              the month is passing. Fixed bills land up front by
+                              design, so flagging them would be noise. */}
+                          {paceP != null && !isFixedCategory(r.name) && (
+                            <i
+                              className="traj-pace"
+                              style={{ left: `${paceP}%` }}
+                              title={`Even pace for day ${dayOfMonth} of ${daysInMonth}`}
+                            />
+                          )}
                         </div>
                       )}
                       <div className="traj-meta">
@@ -209,7 +265,10 @@ export function Dashboard({ month, categories, onManageCategories, onEdit }: Pro
                             title="Tap to edit or remove"
                           >
                             <span className="bud-txn-date">{dayLabel(t.date)}</span>
-                            <span className="bud-txn-note">{t.note || 'Transaction'}</span>
+                            <span className="bud-txn-note">
+                              {t.pending && <span className="pending-chip">Pending</span>}
+                              {t.note || 'Transaction'}
+                            </span>
                             <span className="bud-txn-amt num">{money(t.amount)}</span>
                           </li>
                         ))
