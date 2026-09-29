@@ -1,5 +1,5 @@
 import { applySyncedAccounts, syncBrokerages, type SyncedAccount } from './brokerage'
-import { classifyBankTx, detectTransferIds, isoFromUnix, rentDate, type SyncedTx } from './bankRules'
+import { classifyBankTx, detectPendingTransferIds, detectTransferIds, isoFromUnix, rentDate, type SyncedTx } from './bankRules'
 import { categorize } from './categorize'
 import { oneRowPerUid } from './ledger'
 import { db, type Transaction, type TxType } from '../db/db'
@@ -154,12 +154,13 @@ export async function syncBankTransactions(days = 365): Promise<number> {
     catsByName.set(k, list)
   }
   const transferIds = detectTransferIds(incoming)
+  const pendingTransferIds = detectPendingTransferIds(incoming)
   const now = Date.now()
 
   // Desired = the real (non-transfer, non-investment) transactions, keyed by uid.
   const desired = new Map<string, Transaction>()
   for (const t of incoming) {
-    const verdict = classifyBankTx(t, transferIds)
+    const verdict = classifyBankTx(t, transferIds, pendingTransferIds)
     if (verdict.kind === 'skip') continue
     const acct = t.account || ''
     // A refund files like the merchant's purchases (same rules, expense side),
@@ -260,6 +261,11 @@ export async function syncBankTransactions(days = 365): Promise<number> {
           categoryId: row.categoryId, amount: row.amount, type: row.type, date: row.date,
           pending: row.pending, updatedAt: now,
         })
+      } else if (ex.manual && !!ex.pending !== !!row.pending) {
+        // A pin guards what the user edited. Pending is the bank's state, never
+        // theirs, so it still follows the bank: a row pinned while pending used
+        // to read 'Pending' for good after it posted.
+        await db.transactions.update(ex.id!, { pending: row.pending, updatedAt: now })
       }
     }
     if (toAdd.length) await db.transactions.bulkAdd(toAdd)
