@@ -15,6 +15,7 @@ import { Categories } from './components/Categories'
 import { TransactionSheet } from './components/TransactionSheet'
 import { InstallBanner } from './components/InstallBanner'
 import { Account } from './components/Account'
+import { CommandSheet } from './components/CommandSheet'
 import { Icon } from './components/Icon'
 import { MonthSwitch } from './components/MonthSwitch'
 import { Skeleton, type SkeletonVariant } from './components/Skeleton'
@@ -112,6 +113,7 @@ export default function App() {
   const [adding, setAdding] = useState(false)
   const [queue, setQueue] = useState<SortQueue | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
   const [bankPrompt, setBankPrompt] = useState(false)
   const [budgetFocus, setBudgetFocus] = useState<{ key: string; n: number } | null>(null)
   const [ready, setReady] = useState(false)
@@ -301,6 +303,8 @@ export default function App() {
   // ---- Cross-screen actions (stable, so memoised panes do not re-render) ---
   const openAdd = useCallback(() => setAdding(true), [])
   const openSettings = useCallback(() => setSettingsOpen(true), [])
+  const openCommand = useCallback(() => setCommandOpen(true), [])
+  const closeCommand = useCallback(() => setCommandOpen(false), [])
   const closeSettings = useCallback(() => setSettingsOpen(false), [])
   const closeTxn = useCallback(() => {
     setEditTxn(null)
@@ -362,15 +366,17 @@ export default function App() {
     setBankPrompt(false)
   }, [bankPrompt, tab, loaded])
 
-  // 'n' opens the add sheet when nothing is being typed and no sheet is open.
+  // 'n' opens the add sheet and '/' opens Tell Tally, when nothing is being
+  // typed and no sheet is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'n' || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
+      if ((e.key !== 'n' && e.key !== '/') || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
       const a = document.activeElement as HTMLElement | null
       if (a && (a.matches('input, textarea, select') || a.isContentEditable)) return
       if (document.querySelector('.sheet')) return
       e.preventDefault()
-      setAdding(true)
+      if (e.key === 'n') setAdding(true)
+      else setCommandOpen(true)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -503,6 +509,10 @@ export default function App() {
             <Icon name="plus" size={16} />
             <span>Add transaction</span>
           </button>
+          <button type="button" className="side-tab" data-testid="command-btn" aria-label="Tell Tally" onClick={openCommand}>
+            <Icon name="prompt" size={19} />
+            <span className="tab-label">Tell Tally</span>
+          </button>
           <button
             type="button"
             className="side-tab side-settings"
@@ -521,6 +531,9 @@ export default function App() {
         <header className="app-head" ref={headRef}>
           <div className="head-left">{headLeft}</div>
           <div className="head-right">
+            <button type="button" className="head-btn" data-testid="command-btn" aria-label="Tell Tally" onClick={openCommand}>
+              <Icon name="prompt" size={21} />
+            </button>
             <button type="button" className="head-btn" data-testid="add-txn" aria-label="Add transaction" onClick={openAdd}>
               <Icon name="plus" size={22} />
             </button>
@@ -584,6 +597,8 @@ export default function App() {
       ) : loaded && (editTxn || adding) ? (
         <TransactionSheet key="edit" categories={cats} initial={editTxn} onClose={closeTxn} />
       ) : null}
+
+      {loaded && commandOpen && <CommandSheet categories={cats} onClose={closeCommand} />}
 
       {settingsOpen && (
         <Account

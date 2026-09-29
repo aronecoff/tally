@@ -547,8 +547,129 @@
     margin-top: 1px;
   }
 
+  /* ---- Tell Tally: one line in, a preview of exactly what changes ---------- */
+  .cmd-result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+  }
+
+  .cmd-title {
+    margin: 0;
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+    line-height: 1.4;
+    color: var(--text-1);
+    text-wrap: pretty;
+  }
+
+  .cmd-note,
+  .cmd-error {
+    margin: 0;
+    font-size: var(--fs-caption);
+    line-height: 1.4;
+    letter-spacing: 0.01em;
+    color: var(--text-3);
+    text-wrap: pretty;
+  }
+
+  .cmd-error {
+    font-size: var(--fs-meta);
+    color: var(--near);
+  }
+
+  .cmd-examples {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    margin-top: var(--s-2);
+  }
+
+  .cmd-rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cmd-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--s-3);
+    min-height: var(--row-1);
+    padding: 0 14px;
+    font-size: var(--fs-meta);
+  }
+
+  .cmd-row + .cmd-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 14px;
+    right: 0;
+    border-top: var(--hairline-w) solid var(--hairline);
+  }
+
+  .cmd-row-date {
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  .cmd-row-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-1);
+  }
+
+  .cmd-row-to {
+    color: var(--text-2);
+    font-weight: var(--w-medium);
+    white-space: nowrap;
+  }
+
+  .sheet[data-sheet='command'] > .sheet-actions {
+    flex-direction: column;
+  }
+
+  .sheet[data-sheet='command'] > .sheet-actions .btn-primary {
+    flex: none;
+    width: 100%;
+  }
+
+  /* Visual 36, hit 44: quiet, like the delete, in the neutral colour. */
+  .cmd-undo {
+    position: relative;
+    align-self: center;
+    height: var(--ctl-md);
+    padding: 0 var(--s-5);
+    border: 0;
+    border-radius: var(--r-pill);
+    background: var(--fill);
+    color: var(--text-1);
+    font-size: var(--fs-row);
+    font-weight: var(--w-medium);
+  }
+
+  .cmd-undo::after {
+    content: '';
+    position: absolute;
+    inset: -4px 0;
+  }
+
+  .cmd-undo:active {
+    background: var(--fill-press);
+    transform: scale(var(--press-scale));
+    transition-duration: var(--dur-press);
+  }
+
   /* ---- Hover: pointer devices only ------------------------------------------ */
   @media (hover: hover) and (pointer: fine) {
+    .cmd-undo:hover {
+      background: var(--fill-press);
+    }
     .sheet[data-sheet='txn'] .txn-lookup:hover {
       opacity: 0.8;
     }

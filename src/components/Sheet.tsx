@@ -37,7 +37,7 @@ import { Icon } from './Icon'
  * unmount a closed sheet, so the app can never sit inert behind a dead scrim.
  */
 
-export type SheetKind = 'txn' | 'account' | 'bank' | 'settings'
+export type SheetKind = 'txn' | 'account' | 'bank' | 'settings' | 'command'
 
 interface Entry {
   id: string
