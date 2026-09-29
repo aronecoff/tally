@@ -87,6 +87,22 @@ describe('TransactionList', () => {
     expect(subs.join('|')).not.toMatch(/Sep \d/)
   })
 
+  it('a refund reads as money back with a Refund tag', async () => {
+    await seed([
+      txn({ date: '2026-09-19', amount: 60, categoryId: 1, account: AMEX, note: 'Amazon' }),
+      txn({ date: '2026-09-19', amount: -24, categoryId: 1, account: AMEX, note: 'Amazon Refund' }),
+    ])
+    const { container } = render(view())
+    await screen.findByText('Amazon Refund')
+    const row = screen.getByText('Amazon Refund').closest('li')!
+    expect(row.querySelector('.txn-amt')?.textContent).toBe('+$24.00')
+    expect(row.querySelector('.txn-amt')?.classList.contains('pos')).toBe(true)
+    expect(row.querySelector('.txn-sub')?.textContent).toBe('Refund · Shopping · Amex Green')
+    expect(row.getAttribute('aria-label')).toMatch(/plus \$24\.00.*refund/)
+    // The day total nets it: $60 spent, $24 back.
+    expect(container.querySelector('.txn-day-head')?.textContent).toBe('Sat, Sep 19$36.00')
+  })
+
   it('adds the mask only when two accounts read the same', async () => {
     await seed([
       txn({ date: '2026-09-15', amount: 12, categoryId: 1, account: CHECKING, note: 'A' }),

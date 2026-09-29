@@ -24,7 +24,8 @@ export interface Transaction {
   uid?: string
   /** ISO date, YYYY-MM-DD (local). */
   date: string
-  /** Always stored positive; `type` carries the direction. */
+  /** Positive; `type` carries the direction. The one exception is a merchant
+   *  refund: an expense with a NEGATIVE amount, which offsets its category. */
   amount: number
   type: TxType
   categoryId: number | null

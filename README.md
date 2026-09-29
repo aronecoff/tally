@@ -53,8 +53,12 @@ src/
 
 - **Category**: `{ name, emoji, color, kind: 'expense'|'income', monthlyBudget, sortOrder }`
   — `monthlyBudget` is a recurring per-month limit (0 = none).
-- **Transaction**: `{ date (YYYY-MM-DD), amount (always positive), type, categoryId, account, note }`
-  — direction lives in `type`, not the sign of `amount`.
+- **Transaction**: `{ date (YYYY-MM-DD), amount, type, categoryId, account, note }`
+  — direction lives in `type`, and `amount` is positive, with one exception: a
+  merchant refund on a card is an **expense with a negative amount**, filed in
+  the merchant's category, so it comes off that category's spending in the
+  month it posts (every total just adds amounts). Card payments are transfers
+  and never land (`src/lib/bankRules.ts`).
 
 Every row carries `updatedAt`. That's deliberate (see below).
 

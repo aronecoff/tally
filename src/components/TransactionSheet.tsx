@@ -5,10 +5,12 @@ import { todayISO, dayHeading, dayLabel } from '../lib/dates'
 import { guessCategoryName } from '../lib/categorize'
 import { accountLabel, cleanMerchant, merchantInfo } from '../lib/merchants'
 import { money } from '../lib/format'
+import { isRefund } from '../lib/ledger'
 import { useArmed } from '../lib/useArmed'
 import { rovingKeys } from '../lib/pressable'
 import { Icon } from './Icon'
 import { Pending } from './Pending'
+import { Refund } from './Refund'
 import { Sheet, SheetActions, useSheetClose, useSheetDirty } from './Sheet'
 
 interface Props {
@@ -81,6 +83,7 @@ function txnTitle(initial: Transaction | null, categories: Category[], progress?
       <span className="txn-head-sub">
         {progress && merchant ? `${merchant} · ` : ''}
         {initial.pending && <Pending />}
+        {isRefund(initial) && <Refund />}
         {dayHeading(initial.date)}
       </span>
     </>
@@ -118,7 +121,10 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
   const editing = initial != null
   // Bank-synced rows keep the bank's account string; it is shown, not edited.
   const synced = (initial?.uid ?? '').startsWith('sf:')
-  const initialAmount = initial ? initial.amount.toFixed(2) : ''
+  // A refund is stored negative; the field shows the figure and save restores
+  // the sign. Switched to Income it becomes ordinary money in.
+  const refund = initial != null && isRefund(initial)
+  const initialAmount = initial ? Math.abs(initial.amount).toFixed(2) : ''
   // A rejected IndexedDB write (quota full, an upgrade blocked by another tab)
   // used to be swallowed, so the sheet closed and the save looked like it worked.
   const [saveErr, setSaveErr] = useState<string | null>(null)
@@ -151,12 +157,15 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
     const key = cleanMerchant(initial.note).toLowerCase()
     if (!key) return null
     const all = await db.transactions.toArray()
+    // Charges only: a refund is neither a charge nor part of the average.
     const same = all
-      .filter((t) => !t.deleted && t.id !== initial.id && t.type === initial.type && cleanMerchant(t.note).toLowerCase() === key)
+      .filter((t) => !t.deleted && t.id !== initial.id && t.type === initial.type && t.amount > 0 && cleanMerchant(t.note).toLowerCase() === key)
       .sort((a, b) => b.date.localeCompare(a.date))
     if (same.length === 0) return null
-    const total = same.reduce((s, t) => s + t.amount, 0) + initial.amount
-    return { count: same.length + 1, total, avg: total / (same.length + 1), last: same[0] }
+    const self = initial.amount > 0 ? [initial.amount] : []
+    const count = same.length + self.length
+    const total = same.reduce((s, t) => s + t.amount, 0) + self.reduce((s, x) => s + x, 0)
+    return { count, total, avg: total / count, last: same[0] }
   }, [editing, initial?.id, initial?.note, initial?.type, initial?.amount])
 
   const visibleCategories = useMemo(
@@ -204,6 +213,7 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
 
   const amountNum = Number(amount)
   const valid = amount !== '' && !Number.isNaN(amountNum) && amountNum > 0
+  const refundNow = refund && type === 'expense'
 
   // Accountability: how much is already spent in the selected category this month
   // (excluding the row being edited), so we can warn before this entry breaches a budget.
@@ -217,7 +227,8 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
   }, [type, categoryId, monthOfDate, initial?.id], 0)
 
   const selectedCat = categories.find((c) => c.id === categoryId)
-  const limit = selectedCat?.kind === 'expense' ? selectedCat.monthlyBudget : 0
+  // A refund lowers the category, so it never warns about a budget.
+  const limit = selectedCat?.kind === 'expense' && !refundNow ? selectedCat.monthlyBudget : 0
   const projected = (priorSpend ?? 0) + (valid ? amountNum : 0)
   const warnOver = limit > 0 && valid && projected > limit
   const warnNear = limit > 0 && valid && !warnOver && projected >= limit * 0.85
@@ -226,9 +237,10 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
     if (!valid || busy.current) return
     busy.current = true
     const now = Date.now()
+    const cents = Math.round(amountNum * 100) / 100
     const fields = {
       date,
-      amount: Math.round(amountNum * 100) / 100,
+      amount: refundNow ? -cents : cents,
       type,
       categoryId,
       account: account.trim(),
@@ -287,8 +299,13 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
           This charge is still pending. Edits here stay pinned after it posts, so check Activity once it clears.
         </p>
       )}
+      {refundNow && (
+        <p className="txn-pending-note">
+          A refund. It comes off what you spent in its category.
+        </p>
+      )}
 
-      <div className={`amount-display${type === 'income' ? ' is-income' : ''}`}>
+      <div className={`amount-display${type === 'income' || refundNow ? ' is-income' : ''}`}>
         <span className="currency" aria-hidden="true">$</span>
         <input
           aria-label="Amount"
@@ -311,7 +328,7 @@ function TxnForm({ categories, initial, onSaved, more }: FormProps) {
         />
       </div>
 
-      {hasMerchant && history !== undefined && (
+      {hasMerchant && history !== undefined && (history || !refund) && (
         <p className="txn-history">
           {history ? (
             <>

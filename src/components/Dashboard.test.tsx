@@ -191,3 +191,26 @@ describe('Budget loading', () => {
     expect(container.textContent).not.toContain('$0.00')
   })
 })
+
+describe('Budget: refunds', () => {
+  it('a refund comes off its category and the month, and reads as money back', async () => {
+    const refund = txn('2026-09-18', -46.18, 7, { note: 'Store refund' })
+    const month = [...SEPTEMBER, refund]
+    await db.transactions.clear()
+    await db.transactions.bulkAdd(month)
+    const view = render(<Dashboard month="2026-09" categories={CATEGORIES} active initialOpen={{ key: '7', n: 1 }} />)
+    await waitFor(() => expect(view.container.querySelector('#bud-7.open .bud-txns')).not.toBeNull())
+    const root = view.container
+
+    expect(figureOf(root, '7')).toBe(250) // 296.18 of purchases less the 46.18 back
+    expect(root.querySelector('.hero-fig')?.textContent).toBe(money(5525.66 - 46.18))
+
+    const rows = [...root.querySelectorAll('#bud-7 .bud-txn')]
+    const back = rows.find((r) => r.textContent?.includes('Store refund'))!
+    expect(back.querySelector('.bud-txn-note')?.textContent).toBe('Refund · Store refund')
+    expect(back.querySelector('.bud-txn-amt')?.textContent).toBe('+$46.18')
+    expect(back.querySelector('.bud-txn-amt')?.classList.contains('pos')).toBe(true)
+    // Largest first, so the refund sits under the purchases.
+    expect(rows.at(-1)).toBe(back)
+  })
+})

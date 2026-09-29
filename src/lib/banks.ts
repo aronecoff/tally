@@ -1,6 +1,8 @@
 import { applySyncedAccounts, syncBrokerages, type SyncedAccount } from './brokerage'
+import { classifyBankTx, detectTransferIds, isoFromUnix, type SyncedTx } from './bankRules'
 import { categorize } from './categorize'
-import { db, type Transaction } from '../db/db'
+import { oneRowPerUid } from './ledger'
+import { db, type Transaction, type TxType } from '../db/db'
 import { supabase } from '../db/supabase'
 import { syncNow } from '../sync/sync'
 import { loadMerchantRules } from '../sync/merchantRules'
@@ -117,87 +119,13 @@ export async function syncBanks(): Promise<number> {
   return incoming.length
 }
 
-// NOTE on Robinhood: a blanket /\brobinhood\b/ used to sit in here, which hid
-// BOTH brokerage funding AND a Robinhood-issued card bill ("Robinhood Payment …
-// CCB", CCB = Coastal Community Bank, the card's issuer). When that card is not a
-// connected account, its purchases never arrive — excluding the payment too
-// made that whole card's spending invisible on both sides. Only genuine
-// brokerage funding ("ROBINHOOD DEBITS") is excluded now.
-// Money-movement that must NOT count as spending or income: internal transfers,
-// card payments, investment funding (Robinhood/Webull/brokerages), and bank
-// reversals (returned/declined). Zelle is handled separately (account-aware).
-const EXCLUDE_RE = /\btransfer\b|autopay|auto ?pay|online (payment|pmt|banking)|card ?payment|\bcredit card\b|payment thank ?you|\bpymt\b|\bxfer\b|web ?xfr|e-?transfer|bill ?pay|e-?payment|\bach\b.*(pmt|payment|debit|credit)|\bwire\b|to (savings|checking)|from (savings|checking)|balance ?payment|statement ?credit|robinhood ?debits|robinhood ?instant|\bwebull\b|interactive ?brokers|\bschwab\b|\bfidelity\b|\bcoinbase\b|\bvanguard\b|\bbetterment\b|\bacorns\b|brokerage|returned ?check|declin|amex ?send|sav (incr|decr)ease int/i
-
-interface SyncedTx {
-  sourceTxId: string
-  account: string
-  tier: string
-  posted: number
-  amount: number
-  description: string
-  payee: string
-  memo: string
-  mcc: string | null
-  pending?: boolean
-}
-
-function isoFromUnix(sec: number): string {
-  // UTC components, not local: banks stamp postings at UTC midnight-ish, so a
-  // local-time conversion in any UTC-negative timezone (e.g. Pacific) shifted
-  // every transaction one day EARLY — breaking month boundaries and footing.
-  const d = new Date((Number(sec) || 0) * 1000)
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-/**
- * Detect internal transfers / card payments: a debit on one account that pairs
- * with a credit of the SAME amount on ANOTHER account within ~5 days. That's
- * money moving between your own accounts (incl. paying a card), which must never
- * count as spend or income. Returns the set of transfer sourceTxIds.
- */
-function detectTransferIds(txs: SyncedTx[]): Set<string> {
-  const ids = new Set<string>()
-  const byAmt = new Map<number, SyncedTx[]>()
-  for (const t of txs) {
-    const cents = Math.round(Math.abs(Number(t.amount)) * 100)
-    if (!cents) continue
-    const list = byAmt.get(cents)
-    if (list) list.push(t)
-    else byAmt.set(cents, [t])
-  }
-  const looksLikeTransfer = (t: SyncedTx) =>
-    EXCLUDE_RE.test([t.payee, t.description, t.memo].filter(Boolean).join(' '))
-  for (const group of byAmt.values()) {
-    if (group.length < 2) continue
-    // An identical amount on opposite signs is weak evidence on its own: a $40
-    // refund and an unrelated $40 purchase look exactly like a transfer pair.
-    // If either side of the amount is ambiguous, do not guess a partner.
-    const negs = group.filter((t) => Number(t.amount) < 0)
-    const poss = group.filter((t) => Number(t.amount) > 0)
-    if (negs.length !== 1 || poss.length !== 1) continue
-    const a = negs[0]
-    const b = poss[0]
-    const near = Math.abs((Number(a.posted) || 0) - (Number(b.posted) || 0)) <= 5 * 86400
-    // Require corroboration from the text on at least one side. Single rows that
-    // self-identify are already dropped below; the pair detector exists to reach
-    // the FAR side of an obvious transfer, which often reads only "DEPOSIT".
-    if (a.account !== b.account && near && (looksLikeTransfer(a) || looksLikeTransfer(b))) {
-      ids.add(a.sourceTxId)
-      ids.add(b.sourceTxId)
-    }
-  }
-  return ids
-}
-
 /**
  * Pull real transactions from the linked banks/cards and reconcile them into the
  * transactions table, so the budget runs on ACTUAL spending. Excludes internal
  * transfers / card-payments (matched debit↔credit across accounts + keyword
- * fallback). Reconciles: rows now classified as transfers are removed, so
- * re-syncing corrects earlier over-counts. Idempotent (uid = sf:<tx id>).
+ * fallback). Card refunds come in as negative expenses (bankRules.ts).
+ * Reconciles: rows now classified as transfers are removed, so re-syncing
+ * corrects earlier over-counts. Idempotent (uid = sf:<tx id>).
  */
 // 365, not 120: the banks return everything they have (in practice ~4 months)
 // and a 120-day request was silently dropping a THIRD of the history — the app
@@ -231,26 +159,12 @@ export async function syncBankTransactions(days = 365): Promise<number> {
   // Desired = the real (non-transfer, non-investment) transactions, keyed by uid.
   const desired = new Map<string, Transaction>()
   for (const t of incoming) {
-    const amt = Number(t.amount)
-    if (!Number.isFinite(amt) || amt === 0) continue
-    const text = [t.payee, t.description, t.memo].filter(Boolean).join(' ')
+    const verdict = classifyBankTx(t, transferIds)
+    if (verdict.kind === 'skip') continue
     const acct = t.account || ''
-
-    // Exclude money-movement so it never counts as spend/income:
-    //  - debit↔credit pairs matched across your accounts (detectTransferIds)
-    //  - keyword transfers / card payments / investment moves / reversals
-    //  - Zelle OUT OF a savings/money-market account (large self-transfers);
-    //    Zelle out of checking is kept as spending (you paying people).
-    if (transferIds.has(t.sourceTxId) || EXCLUDE_RE.test(text)) continue
-    if (/\bzelle\b/i.test(text) && /money ?market|savings|hysa|high ?yield/i.test(acct)) continue
-
-    let type: 'expense' | 'income'
-    if (t.tier === 'credit') {
-      if (amt < 0) type = 'expense'
-      else continue // a positive amount on a card is a payment/credit — skip
-    } else {
-      type = amt < 0 ? 'expense' : 'income'
-    }
+    // A refund files like the merchant's purchases (same rules, expense side),
+    // so it lands in that category and offsets it.
+    const type: TxType = verdict.kind === 'income' ? 'income' : 'expense'
 
     let name = categorize({ description: t.description, payee: t.payee, memo: t.memo, mcc: t.mcc, kind: type })
     if (type === 'income' && !name) name = 'Other income'
@@ -262,10 +176,11 @@ export async function syncBankTransactions(days = 365): Promise<number> {
     const categoryId = cat ? cat.id : null
 
     const uid = `sf:${t.sourceTxId}`
+    const cents = Math.round(Math.abs(Number(t.amount)) * 100) / 100
     desired.set(uid, {
       uid,
       date: isoFromUnix(t.posted),
-      amount: Math.round(Math.abs(amt) * 100) / 100,
+      amount: verdict.kind === 'refund' ? -cents : cents,
       type,
       categoryId,
       account: acct,
@@ -277,18 +192,6 @@ export async function syncBankTransactions(days = 365): Promise<number> {
   }
 
   // Reconcile existing synced (sf:) rows to match `desired`.
-  const existing = await db.transactions.filter((t) => (t.uid ?? '').startsWith('sf:')).toArray()
-  // Keep the LOWEST id per uid. A plain Map keeps the LAST row, so healing
-  // duplicates against it would tombstone the row the map points at and the
-  // resurrect branch below would bring it back on the next sync, re-doubling.
-  const existingByUid = new Map<string, Transaction>()
-  const dupes: Transaction[] = []
-  for (const t of existing) {
-    const prev = existingByUid.get(t.uid!)
-    if (!prev) existingByUid.set(t.uid!, t)
-    else if ((t.id ?? 0) < (prev.id ?? 0)) { existingByUid.set(t.uid!, t); dupes.push(prev) }
-    else dupes.push(t)
-  }
   let added = 0
   // The bank only returned the last `days`, so anything older was never a
   // candidate for `desired` and must not be reconciled away. Without this the
@@ -310,7 +213,16 @@ export async function syncBankTransactions(days = 365): Promise<number> {
   // response) must not mass-delete that account's in-window rows.
   const seenAccounts = new Set(incoming.map((t) => t.account || ''))
   await db.transaction('rw', db.transactions, async () => {
-    for (const t of existing) {
+    // Read the synced rows INSIDE the write transaction: a device-sync pull that
+    // landed between a read and these writes had its row added a second time
+    // below, and a row stored twice counts twice.
+    const existing = await db.transactions.filter((t) => (t.uid ?? '').startsWith('sf:')).toArray()
+    const { byUid: existingByUid, copies } = oneRowPerUid(existing)
+    // Copies are deleted outright. They used to be tombstoned, which pushed
+    // `deleted` under the shared uid and set the resurrect branch below
+    // flip-flopping the real row on every sync.
+    if (copies.length) await db.transactions.bulkDelete(copies.map((c) => c.id!))
+    for (const t of existingByUid.values()) {
       if (
         t.uid && !t.deleted && !t.manual &&
         t.date >= windowStart &&
@@ -346,10 +258,6 @@ export async function syncBankTransactions(days = 365): Promise<number> {
           pending: row.pending, updatedAt: now,
         })
       }
-    }
-    // Collapse duplicates left behind by previously overlapping syncs.
-    for (const dup of dupes) {
-      if (!dup.deleted && !dup.manual) await db.transactions.update(dup.id!, { deleted: true, updatedAt: now })
     }
     if (toAdd.length) await db.transactions.bulkAdd(toAdd)
   })

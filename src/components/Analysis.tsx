@@ -92,7 +92,10 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
       const k = t.date.slice(0, 7)
       const b = by.get(k) ?? { income: 0, spend: 0, n: 0 }
       if (t.type === 'income') b.income += t.amount
-      else { b.spend += t.amount; b.n++ }
+      else {
+        b.spend += t.amount
+        if (t.amount > 0) b.n++ // refunds net into spend but are not purchases
+      }
       by.set(k, b)
     }
     const nowKey = currentMonth()
@@ -137,7 +140,8 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
       // The glyph is the category of the first charge seen (rows arrive by date).
       const name = cleanMerchant(t.note || '') || 'Other'
       const m = merch.get(name) ?? { n: 0, amt: 0, cat: key }
-      m.n++
+      // A refund lowers the merchant's total but is not another charge.
+      if (t.amount > 0) m.n++
       m.amt += t.amount
       merch.set(name, m)
     }

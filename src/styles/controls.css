@@ -377,9 +377,10 @@
     color: var(--near);
   }
 
-  /* ---- Pending: a quiet caps word, never a badge. The separator is markup
-     (<Pending/>), so text dumps read 'Pending · …'. ------------------------ */
-  .pending-chip {
+  /* ---- Pending / Refund: a quiet caps word, never a badge. The separator is
+     markup (<Pending/>, <Refund/>), so text dumps read 'Pending · …'. ------ */
+  .pending-chip,
+  .refund-chip {
     display: inline;
     margin: 0;
     padding: 0;

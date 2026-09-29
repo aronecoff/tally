@@ -187,6 +187,52 @@ describe('TransactionSheet — amount', () => {
   })
 })
 
+describe('TransactionSheet — a refund', () => {
+  const REFUND: Transaction = {
+    id: 44,
+    date: '2026-07-20',
+    amount: -18.5,
+    type: 'expense',
+    categoryId: 1,
+    account: 'Amex',
+    note: 'AMAZON MKTPLACE PMTS',
+    createdAt: 0,
+    updatedAt: 0,
+  }
+  beforeEach(async () => {
+    await db.transactions.add(REFUND)
+  })
+
+  it('shows the figure unsigned and saves it back as a refund', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={REFUND} onClose={onClose} />)
+    expect(amountInput().value).toBe('18.50')
+    expect(screen.getByText('A refund. It comes off what you spent in its category.')).toBeTruthy()
+    fireEvent.change(amountInput(), { target: { value: '20' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(await db.transactions.get(44)).toMatchObject({ amount: -20, type: 'expense', manual: true })
+  })
+
+  it('switched to Income it saves as ordinary money in', async () => {
+    const onClose = vi.fn()
+    render(<TransactionSheet categories={CATEGORIES} initial={REFUND} onClose={onClose} />)
+    fireEvent.click(seg('Income'))
+    fireEvent.click(screen.getByText('Salary'))
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(await db.transactions.get(44)).toMatchObject({ amount: 18.5, type: 'income', categoryId: 7 })
+  })
+
+  it('never warns about a budget', async () => {
+    // Groceries (600) already holds 74.30 this month; a warning would need more.
+    await db.transactions.add({ ...TXN, id: 45, date: '2026-07-02', amount: 560 })
+    render(<TransactionSheet categories={CATEGORIES} initial={REFUND} onClose={() => {}} />)
+    await flush()
+    expect(document.querySelector('.limit-warn')).toBeNull()
+  })
+})
+
 describe('TransactionSheet — head and account', () => {
   const SYNCED: Transaction = {
     ...TXN,

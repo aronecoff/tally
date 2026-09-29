@@ -1,5 +1,6 @@
 import { db, type Category, type Transaction } from '../db/db'
 import { supabase } from '../db/supabase'
+import { oneRowPerUid } from '../lib/ledger'
 import { clearUserRules } from '../lib/userRules'
 import { loadMerchantRules } from './merchantRules'
 
@@ -134,10 +135,15 @@ async function pull(): Promise<void> {
 
     const { data: rtx, error: e2 } = await supabase.from('transactions').select('*')
     if (e2) throw e2
-    const localTx = await db.transactions.toArray()
-    const txByUid = new Map(localTx.filter((t) => t.uid).map((t) => [t.uid!, t]))
+    // One row per uid before comparing: the same row stored twice would count
+    // twice until the next bank reconcile (up to 6 hours) collapsed it.
+    const { byUid: txByUid, copies } = oneRowPerUid(await db.transactions.toArray())
+    if (copies.length) await db.transactions.bulkDelete(copies.map((c) => c.id!))
     for (const r of rtx ?? []) {
-      const local = txByUid.get(r.id)
+      // Missing from the snapshot taken above, a row may still have arrived
+      // since: a bank sync on this device adds the same sf: uid. Adopt it rather
+      // than add a second copy, which would count twice.
+      const local = txByUid.get(r.id) ?? (await db.transactions.where('uid').equals(r.id).first())
       const fields: Transaction = {
         uid: r.id,
         date: r.date,
@@ -248,20 +254,37 @@ async function push(userId: string): Promise<void> {
   await resilientUpsert('transactions', txs.filter((t) => t.uid).map((t) => txToRemote(t, userId, catUidById)))
 }
 
-let syncing = false
+let inflight: Promise<void> | null = null
 let queued = false
 
-export async function syncNow(): Promise<void> {
+/**
+ * Pull, then push. A call that lands mid-run queues one more run and returns the
+ * run in flight, so `await syncNow()` always means the cloud's rows are in Dexie.
+ * It used to return at once, and the bank overlay (which awaits this first) then
+ * reconciled against rows that had not yet learned their pins or moved dates.
+ */
+export function syncNow(): Promise<void> {
+  if (!supabase) return Promise.resolve()
+  if (inflight) {
+    queued = true
+    return inflight
+  }
+  inflight = runSync().finally(() => {
+    inflight = null
+    if (queued) {
+      queued = false
+      void syncNow()
+    }
+  })
+  return inflight
+}
+
+async function runSync(): Promise<void> {
   if (!supabase) return
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return // offline — the 'online' listener retries
   const { data } = await supabase.auth.getSession()
   const user = data.session?.user
   if (!user) return
-  if (syncing) {
-    queued = true
-    return
-  }
-  syncing = true
   emit({ status: 'syncing', error: null })
   try {
     await pull()
@@ -269,12 +292,6 @@ export async function syncNow(): Promise<void> {
     emit({ status: 'synced', lastSyncedAt: Date.now(), error: null })
   } catch (e) {
     emit({ status: 'error', error: e instanceof Error ? e.message : 'Sync failed.' })
-  } finally {
-    syncing = false
-    if (queued) {
-      queued = false
-      void syncNow()
-    }
   }
 }
 

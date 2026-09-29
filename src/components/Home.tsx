@@ -5,11 +5,13 @@ import { currentMonth, todayISO, monthShortLabel, dayLabel } from '../lib/dates'
 import { paceProjector } from '../lib/projection'
 import { isFixedCategory } from '../lib/categorize'
 import { cleanMerchant } from '../lib/merchants'
+import { isRefund } from '../lib/ledger'
 import { money, pct } from '../lib/format'
 import { rowState, budgetStatus, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET, BY_MONTH_END } from '../lib/copy'
 import { Icon } from './Icon'
 import { Money } from './Money'
 import { Pending } from './Pending'
+import { Refund } from './Refund'
 import { Skeleton } from './Skeleton'
 import { pressable } from '../lib/pressable'
 import { useSettle } from '../lib/motion'
@@ -196,7 +198,8 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   const bills = useMemo(() => {
     const groups = new Map<string, { name: string; months: Set<string>; last: number; lastDate: string; catId: number | null }>()
     for (const t of recentTxns ?? EMPTY) {
-      if (t.deleted || t.type !== 'expense') continue
+      // A refund is not a bill landing (and would show as a negative 'last').
+      if (t.deleted || t.type !== 'expense' || isRefund(t)) continue
       // Group by the CLEANED merchant, or "SAFEWAY #1234" and "SAFEWAY #5678"
       // read as two different bills and recurring detection undercounts.
       const key = cleanMerchant(t.note || '').toLowerCase()
@@ -500,7 +503,8 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
             <ul className="txn-list">
               {todays.map((t) => {
                 const cat = t.categoryId != null ? catById.get(t.categoryId) : undefined
-                const income = t.type === 'income'
+                const refund = isRefund(t)
+                const moneyIn = t.type === 'income' || refund
                 return (
                   <li key={t.id} className="txn-row" {...pressable(() => onEdit(t))}>
                     <span className="cat-tile">
@@ -510,12 +514,13 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
                       <span className="txn-note">{cleanMerchant(t.note || '') || cat?.name || 'Uncategorized'}</span>
                       <span className="txn-sub">
                         {t.pending && <Pending />}
+                        {refund && <Refund />}
                         {cat?.name ?? 'Uncategorized'}
                       </span>
                     </span>
-                    <span className={`txn-amt num${income ? ' pos' : ''}`}>
-                      {income ? '+' : ''}
-                      {money(t.amount)}
+                    <span className={`txn-amt num${moneyIn ? ' pos' : ''}`}>
+                      {moneyIn ? '+' : ''}
+                      {money(Math.abs(t.amount))}
                     </span>
                   </li>
                 )
@@ -554,7 +559,8 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
                     key={i}
                     // "zero", not "empty": .empty is the app's padded empty-state
                     // message class and inflates the bar to 48×104.
-                    className={`daily-bar${isToday ? ' today' : ''}${amt === 0 ? ' zero' : ''}`}
+                    // A refund-only day nets below zero: it draws as an empty day.
+                    className={`daily-bar${isToday ? ' today' : ''}${amt <= 0 ? ' zero' : ''}`}
                     style={{ height: `${h}px` }}
                     title={`Day ${i + 1}: ${money(amt)}`}
                   />

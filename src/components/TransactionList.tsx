@@ -4,10 +4,11 @@ import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
 import { currentMonth, dayHeading, dayLabel, monthLabel } from '../lib/dates'
 import { accountLabel, cleanMerchant } from '../lib/merchants'
-import { groupByDay, type DayGroup } from '../lib/ledger'
+import { groupByDay, isRefund, type DayGroup } from '../lib/ledger'
 import { pressable, rovingKeys } from '../lib/pressable'
 import { Icon } from './Icon'
 import { Pending } from './Pending'
+import { Refund } from './Refund'
 import { Skeleton } from './Skeleton'
 
 interface Props {
@@ -209,7 +210,9 @@ function TxnRow({ t, i, catById, names, onEdit }: TxnRowProps) {
   const uncategorized = t.type === 'expense' && t.categoryId == null
   const title = cleanMerchant(t.note ?? '') || cat?.name || 'Uncategorized'
   const account = t.account ? (names.get(t.account) ?? accountLabel(t.account).label) : ''
-  const income = t.type === 'income'
+  const refund = isRefund(t)
+  // Money coming back reads the same whether it is income or a refund.
+  const moneyIn = t.type === 'income' || refund
 
   const meta: ReactNode[] = []
   if (cat) meta.push(cat.name)
@@ -218,9 +221,10 @@ function TxnRow({ t, i, catById, names, onEdit }: TxnRowProps) {
 
   const spoken = [
     title,
-    `${income ? 'plus ' : ''}${money(t.amount)}`,
+    `${moneyIn ? 'plus ' : ''}${money(Math.abs(t.amount))}`,
     dayLabel(t.date),
     t.pending ? 'pending' : '',
+    refund ? 'refund' : '',
     cat?.name ?? (uncategorized ? 'Uncategorized' : ''),
     account,
   ]
@@ -240,7 +244,8 @@ function TxnRow({ t, i, catById, names, onEdit }: TxnRowProps) {
       <span className="txn-main">
         <span className="txn-note">{title}</span>
         <span className="txn-sub">
-          {t.pending && (meta.length > 0 ? <Pending /> : <span className="pending-chip">Pending</span>)}
+          {t.pending && (meta.length > 0 || refund ? <Pending /> : <span className="pending-chip">Pending</span>)}
+          {refund && (meta.length > 0 ? <Refund /> : <span className="refund-chip">Refund</span>)}
           {meta.map((m, k) => (
             <Fragment key={k}>
               {k > 0 && ' · '}
@@ -249,9 +254,9 @@ function TxnRow({ t, i, catById, names, onEdit }: TxnRowProps) {
           ))}
         </span>
       </span>
-      <span className={`txn-amt num${income ? ' pos' : ''}`}>
-        {income ? '+' : ''}
-        {money(t.amount)}
+      <span className={`txn-amt num${moneyIn ? ' pos' : ''}`}>
+        {moneyIn ? '+' : ''}
+        {money(Math.abs(t.amount))}
       </span>
     </li>
   )

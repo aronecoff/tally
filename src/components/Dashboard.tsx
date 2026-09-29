@@ -6,12 +6,14 @@ import { isFixedCategory } from '../lib/categorize'
 import { paceProjector } from '../lib/projection'
 import { budgetStatus, rowState, INCOME, OVERSPENT, SAVED, SPENDING, BY_MONTH_END, type RowState } from '../lib/copy'
 import { currentMonth, dayLabel } from '../lib/dates'
+import { isRefund } from '../lib/ledger'
 import { pressable } from '../lib/pressable'
 import { useSettle } from '../lib/motion'
 import { BudgetWheel, type WheelSlice } from './BudgetWheel'
 import { Icon } from './Icon'
 import { Money } from './Money'
 import { Pending } from './Pending'
+import { Refund } from './Refund'
 import { Skeleton } from './Skeleton'
 
 interface Props {
@@ -239,9 +241,13 @@ export const Dashboard = memo(function Dashboard({
             <span className="bud-txn-date">{dayLabel(t.date)}</span>
             <span className="bud-txn-note">
               {t.pending && <Pending />}
+              {isRefund(t) && <Refund />}
               {t.note || 'Transaction'}
             </span>
-            <span className="bud-txn-amt num">{money(t.amount)}</span>
+            <span className={`bud-txn-amt num${isRefund(t) ? ' pos' : ''}`}>
+              {isRefund(t) ? '+' : ''}
+              {money(Math.abs(t.amount))}
+            </span>
             {onEdit && <Icon name="chevron" size={12} className="bud-txn-chev" />}
           </li>
         ))
@@ -253,7 +259,8 @@ export const Dashboard = memo(function Dashboard({
     const key = rowKey(r)
     const expanded = open === key
     const has = r.limit > 0
-    const barPct = has ? Math.min(100, (r.spent / r.limit) * 100) : 0
+    // Clamped at 0: refunds bigger than the month's purchases leave `spent` negative.
+    const barPct = has ? Math.max(0, Math.min(100, (r.spent / r.limit) * 100)) : 0
     const fill = r.state === 'over' ? 'over' : r.state === 'pace' || r.state === 'near' ? 'pace' : 'ok'
     const tile = r.state === 'over' ? 'over' : r.state === 'pace' || r.state === 'near' ? 'pace' : ''
     const status = budgetStatus({
