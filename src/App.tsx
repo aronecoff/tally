@@ -3,7 +3,6 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Transaction } from './db/db'
 import { supabase } from './db/supabase'
 import { seedIfEmpty } from './db/seed'
-import { seedAccountsIfEmpty } from './db/seedAccounts'
 import { currentMonth } from './lib/dates'
 import { useTheme } from './lib/useTheme'
 import { play } from './lib/motion'
@@ -135,7 +134,7 @@ export default function App() {
   const loaded = ready && categories !== undefined
 
   useEffect(() => {
-    Promise.all([seedIfEmpty(), seedAccountsIfEmpty()]).finally(() => setReady(true))
+    seedIfEmpty().finally(() => setReady(true))
     initSync()
     // Real-time connector sync: pull balances + transactions on boot, whenever the
     // window regains focus, and every few minutes while open. Device sync (Supabase

@@ -10,6 +10,7 @@
 // enrollment's accounts.
 //
 // Secrets (set as Supabase function secrets, never in the repo):
+//   OWNER_EMAIL     — the owner's sign-in email (unset => reject all)
 //   TELLER_APP_ID   — Teller application id (app_...), safe-ish but kept server-side
 //   TELLER_ENV      — 'development' (default) | 'sandbox' | 'production'
 //   TELLER_CERT     — client certificate PEM (or base64 of it)
@@ -57,7 +58,8 @@ async function requireOwner(req, uid) {
   if (!token) return json({ ok: false, error: "unauthorized" }, 401);
   const { data, error } = await supa.auth.getUser(token);
   const u = data?.user;
-  const emailOk = (u?.email ?? "").toLowerCase() === OWNER_EMAIL;
+  // An unset OWNER_EMAIL secret rejects everyone, like a NULL owner_uid.
+  const emailOk = !!OWNER_EMAIL && (u?.email ?? "").toLowerCase() === OWNER_EMAIL;
   if (error || !u || !u.email_confirmed_at || u.id !== uid || !emailOk) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }

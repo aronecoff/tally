@@ -58,6 +58,34 @@ src/
 
 Every row carries `updatedAt`. That's deliberate (see below).
 
+## Backend (Supabase)
+
+Sync and the live connectors run on Supabase. The Edge Functions in
+`supabase/functions/` (`simplefin`, `snaptrade`, `teller`) read everything
+account-specific from function secrets, never from the source.
+
+**Before any `supabase functions deploy`**, set these secrets alongside the
+existing `SNAPTRADE_CONSUMER_KEY`, `TELLER_*` and service keys:
+
+- `OWNER_EMAIL`: the owner's sign-in email. Every connector checks the caller
+  against it (and against `owner_uid`).
+- `SNAPTRADE_CLIENT_ID`: the SnapTrade Personal client id.
+
+Without them every connector rejects every request, by design (fail closed),
+and SnapTrade answers `not configured`.
+
+### Personal categorization rules
+
+The built-in keyword rules in `src/lib/categorize.ts` are generic on purpose:
+the source ships in the public bundle. Rules for your own merchants (a
+landlord, a local restaurant, a niche shop) live in the per-user
+`merchant_rules` table instead, created by
+`supabase/migrations/20260928120000_merchant_rules.sql` (owner-only row-level
+security). The app loads them after sign-in, caches them on the device, and
+merges them with the built-ins by `priority`: the built-ins sit on multiples of
+10, the lowest matching priority wins, and your rule wins a tie. Until a copy of
+the rules is on the device, automatic re-filing of bank transactions waits.
+
 ## Roadmap / next steps
 
 1. **Supabase sync** (multi-device). The seam is ready: all reads/writes go

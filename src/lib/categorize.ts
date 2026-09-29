@@ -1,3 +1,5 @@
+import { getUserRules, type RuleKind, type UserRule } from './userRules'
+
 /**
  * Auto-categorization for both hand-typed notes and real synced transactions.
  * For synced transactions the merchant category code (MCC) is the strongest
@@ -22,48 +24,45 @@
 const FIXED_CATEGORIES = new Set(['rent', 'subscriptions', 'health'])
 export const isFixedCategory = (name: string) => FIXED_CATEGORIES.has(name.trim().toLowerCase())
 
-type Rule = { match: RegExp; category: string }
+type Rule = { match: RegExp; category: string; priority: number }
 
-// Expense keyword → category. First match wins, so order = priority.
+// Every rule carries a priority and the lowest number that matches wins. The
+// built-ins sit on multiples of 10 so a user's own rules (userRules.ts, from the
+// per-user merchant_rules table) can slot in before, between or after them; on
+// a tie the user's rule wins. The gap from 120 to 170 is left free for them.
+
+// Expense keyword → category.
 const EXPENSE_RULES: Rule[] = [
   // Rent / housing (specific, first).
-  { match: /\brent\b|landlord|property ?mgmt|leasing|apartment/i, category: 'Rent' },
+  { priority: 10, match: /\brent\b|landlord|property ?mgmt|leasing|apartment/i, category: 'Rent' },
   // Groceries
-  { match: /grocer|whole ?foods|trader ?joe|safeway|costco|kroger|aldi|wegmans|publix|sprouts|instacart|\bh-?e-?b\b/i, category: 'Groceries' },
+  { priority: 20, match: /grocer|whole ?foods|trader ?joe|safeway|costco|kroger|aldi|wegmans|publix|sprouts|instacart|\bh-?e-?b\b/i, category: 'Groceries' },
   // Dining — restaurants, delivery, cafes, bars
-  { match: /restaurant|cafe|coffee|starbucks|blue ?bottle|doordash|uber ?eats|grubhub|postmates|chipotle|pizza|taco|sushi|korean|\bbbq\b|dunkin|mcdonald|burger|in-?n-?out|\bbar\b|grill|kitchen|eatery|deli|bakery|ice ?cream/i, category: 'Dining' },
+  { priority: 30, match: /restaurant|cafe|coffee|starbucks|blue ?bottle|doordash|uber ?eats|grubhub|postmates|chipotle|pizza|taco|sushi|korean|\bbbq\b|dunkin|mcdonald|burger|in-?n-?out|\bbar\b|grill|kitchen|eatery|deli|bakery|ice ?cream/i, category: 'Dining' },
   // Transport — rideshare, fuel, EV charging, transit, air, parking, auto insurance
-  { match: /\buber\b|lyft|shell|chevron|exxon|\bgas\b|fuel|supercharger|charge ?point|insta ?charge|electrify|\bevgo\b|\btesla\b|parking|\bbart\b|transit|caltrain|\btoll\b|amtrak|delta|united|american air|airlines?|progressive|geico|state ?farm|allstate|\bdmv\b/i, category: 'Transport' },
+  { priority: 40, match: /\buber\b|lyft|shell|chevron|exxon|\bgas\b|fuel|supercharger|charge ?point|insta ?charge|electrify|\bevgo\b|\btesla\b|parking|\bbart\b|transit|caltrain|\btoll\b|amtrak|delta|united|american air|airlines?|progressive|geico|state ?farm|allstate|\bdmv\b/i, category: 'Transport' },
   // Subscriptions — streaming, SaaS, digital, telecom, memberships
-  { match: /netflix|spotify|hulu|disney|youtube|\bhbo\b|paramount|peacock|adobe|figma|canva|notion|icloud|dropbox|1password|openai|chatgpt|anthropic|\bclaude\b|vercel|github|google ?(photos|one|storage|drive)|\bapple\.com|itunes|app ?store|audible|prime ?video|kindle|patreon|substack|subscription|annual ?membership/i, category: 'Subscriptions' },
+  { priority: 50, match: /netflix|spotify|hulu|disney|youtube|\bhbo\b|paramount|peacock|adobe|figma|canva|notion|icloud|dropbox|1password|openai|chatgpt|anthropic|\bclaude\b|vercel|github|google ?(photos|one|storage|drive)|\bapple\.com|itunes|app ?store|audible|prime ?video|kindle|patreon|substack|subscription|annual ?membership/i, category: 'Subscriptions' },
   // Fitness EQUIPMENT retailers — before Health so "Rogue Fitness" doesn't
   // match the membership rule below (gear is a purchase, not healthcare).
-  { match: /roguefitnes|\brogue\b/i, category: 'Shopping' },
+  { priority: 60, match: /roguefitnes|\brogue\b/i, category: 'Shopping' },
   // Health — pharmacy, medical, fitness services (memberships, care)
-  { match: /pharmacy|\bcvs\b|walgreens|rite ?aid|doctor|dental|dentist|clinic|hospital|\bgym\b|fitness|equinox|peloton|therapy|optometr/i, category: 'Health' },
+  { priority: 70, match: /pharmacy|\bcvs\b|walgreens|rite ?aid|doctor|dental|dentist|clinic|hospital|\bgym\b|fitness|equinox|peloton|therapy|optometr/i, category: 'Health' },
   // Shopping — retail, apparel, general merchandise, online stores
-  { match: /amazon|\btarget\b|walmart|best ?buy|\bikea\b|home ?depot|lowes|nordstrom|\bmacy|talbots|\basics\b|nike|adidas|\bstore\b|\bshop\b|\.com\b/i, category: 'Shopping' },
+  { priority: 80, match: /amazon|\btarget\b|walmart|best ?buy|\bikea\b|home ?depot|lowes|nordstrom|\bmacy|talbots|\basics\b|nike|adidas|\bstore\b|\bshop\b|\.com\b/i, category: 'Shopping' },
   // Fun — entertainment, events, gaming
-  { match: /movie|cinema|\bamc\b|concert|ticketmaster|stubhub|\bsteam\b|playstation|xbox|nintendo|arcade|bowling|museum/i, category: 'Fun' },
+  { priority: 90, match: /movie|cinema|\bamc\b|concert|ticketmaster|stubhub|\bsteam\b|playstation|xbox|nintendo|arcade|bowling|museum/i, category: 'Fun' },
   // Apple services (kept after Shopping's apple.com so device buys read as Shopping,
   // but bare "apple" recurring charges land in Subscriptions).
-  { match: /^apple$|apple ?(services|music|tv)/i, category: 'Subscriptions' },
+  { priority: 100, match: /^apple$|apple ?(services|music|tv)/i, category: 'Subscriptions' },
   // Installment purchases are shopping regardless of the financing rail.
-  { match: /pay ?in ?4|affirm|klarna|afterpay/i, category: 'Shopping' },
-  // Merchants whose raw bank descriptors are too abbreviated for the generic
-  // rules to catch.
-  
-  
-  
-  
-  
-  
+  { priority: 110, match: /pay ?in ?4|affirm|klarna|afterpay/i, category: 'Shopping' },
   // Brokerage-issued card bill. When the card itself is not connected, this payment
   // is the ONLY visibility we have into what was charged on it — count it.
-  { match: /robinhood.*(ccb|payment)/i, category: 'Other' },
+  { priority: 180, match: /robinhood.*(ccb|payment)/i, category: 'Other' },
   // Person-to-person payments and cash: real spending, bucketed visibly in
   // Other (recategorize by hand when the recipient matters).
-  { match: /\bzelle\b|atm withdrawal/i, category: 'Other' },
+  { priority: 190, match: /\bzelle\b|atm withdrawal/i, category: 'Other' },
 ]
 
 // Income keyword → category. Only applied to income transactions.
@@ -71,10 +70,33 @@ const INCOME_RULES: Rule[] = [
   // Interest/refunds first: some banks append "Paid Early" to every deposit, so a
   // bare \bpaid\b in the Salary rule swallowed interest and reimbursements.
   // Real payroll always carries "payroll"/"direct dep"/"paycheck" of its own.
-  { match: /refund|interest ?(payment|paid)?|dividend|cash ?back|rebate|reimburse/i, category: 'Other income' },
-  { match: /payroll|salary|direct ?dep|paycheck/i, category: 'Salary' },
-  { match: /invoice|freelance|consult|stripe|gumroad|\bclient\b/i, category: 'Freelance' },
+  { priority: 10, match: /refund|interest ?(payment|paid)?|dividend|cash ?back|rebate|reimburse/i, category: 'Other income' },
+  { priority: 20, match: /payroll|salary|direct ?dep|paycheck/i, category: 'Salary' },
+  { priority: 30, match: /invoice|freelance|consult|stripe|gumroad|\bclient\b/i, category: 'Freelance' },
 ]
+
+// The merged lists, rebuilt only when the user's rule set is replaced
+// (getUserRules() returns a new array on every change).
+let merged: { src: readonly UserRule[]; expense: readonly Rule[]; income: readonly Rule[] } | null = null
+
+function merge(user: readonly UserRule[], kind: RuleKind, builtIns: readonly Rule[]): readonly Rule[] {
+  const own = user.filter((r) => r.kind === kind)
+  if (own.length === 0) return builtIns
+  // User rules go first so the stable sort lets them win a tie.
+  return [...own.map(({ match, category, priority }) => ({ match, category, priority })), ...builtIns].sort(
+    (a, b) => a.priority - b.priority,
+  )
+}
+
+/** The rules for one kind, in the order they are tried. */
+function rulesFor(kind: RuleKind): readonly Rule[] {
+  const user = getUserRules()
+  if (user.length === 0) return kind === 'income' ? INCOME_RULES : EXPENSE_RULES
+  if (merged?.src !== user) {
+    merged = { src: user, expense: merge(user, 'expense', EXPENSE_RULES), income: merge(user, 'income', INCOME_RULES) }
+  }
+  return kind === 'income' ? merged.income : merged.expense
+}
 
 // MCC (ISO 18245) → category. Everyday ranges only; applies to expenses.
 const MCC: Record<string, string> = {
@@ -113,12 +135,12 @@ const MCC: Record<string, string> = {
 export function guessCategoryName(description: string, kind?: 'expense' | 'income'): string | null {
   if (!description) return null
   if (kind === 'income') {
-    for (const r of INCOME_RULES) if (r.match.test(description)) return r.category
+    for (const r of rulesFor('income')) if (r.match.test(description)) return r.category
     return null
   }
-  for (const r of EXPENSE_RULES) if (r.match.test(description)) return r.category
+  for (const r of rulesFor('expense')) if (r.match.test(description)) return r.category
   if (kind === 'expense') return null
-  for (const r of INCOME_RULES) if (r.match.test(description)) return r.category
+  for (const r of rulesFor('income')) if (r.match.test(description)) return r.category
   return null
 }
 

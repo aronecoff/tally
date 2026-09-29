@@ -14,6 +14,8 @@
 //     the owner signs in once and their uid is recorded.
 //
 // Secrets (set as Supabase function secrets, never in the repo):
+//   OWNER_EMAIL                 — the owner's sign-in email (unset => reject all)
+//   SNAPTRADE_CLIENT_ID         — SnapTrade Personal client id
 //   SNAPTRADE_CONSUMER_KEY      — SnapTrade Personal consumer key
 //   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY — injected by the platform
 // The SnapTrade userId/userSecret + owner_uid live in `snaptrade_user` (id=1),
@@ -47,7 +49,8 @@ async function requireOwner(req, ownerUid) {
   if (!token) return json({ ok: false, error: "unauthorized" }, 401);
   const { data, error } = await supa.auth.getUser(token);
   const u = data?.user;
-  const emailOk = (u?.email ?? "").toLowerCase() === OWNER_EMAIL;
+  // An unset OWNER_EMAIL secret rejects everyone, like a NULL owner_uid.
+  const emailOk = !!OWNER_EMAIL && (u?.email ?? "").toLowerCase() === OWNER_EMAIL;
   if (error || !u || !u.email_confirmed_at || u.id !== ownerUid || !emailOk) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
@@ -72,6 +75,7 @@ Deno.serve(async (req) => {
     const { userId, userSecret, ownerUid } = await config();
     const denied = await requireOwner(req, ownerUid);
     if (denied) return denied;
+    if (!CLIENT_ID || !CONSUMER_KEY) return json({ ok: false, error: "not configured" }, 503);
 
     if (!userId) return json({ ok: false, error: "snaptrade_user not provisioned" }, 500);
     const body = await req.json().catch(() => ({}));

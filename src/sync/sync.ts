@@ -1,5 +1,7 @@
 import { db, type Category, type Transaction } from '../db/db'
 import { supabase } from '../db/supabase'
+import { clearUserRules } from '../lib/userRules'
+import { loadMerchantRules } from './merchantRules'
 
 type Status = 'signedout' | 'idle' | 'syncing' | 'synced' | 'error'
 
@@ -301,15 +303,19 @@ export function initSync(): void {
   supabase.auth.getSession().then(({ data }) => {
     if (data.session?.user) {
       emit({ email: data.session.user.email ?? null, status: 'idle' })
+      void loadMerchantRules()
       void syncNow()
     }
   })
 
-  supabase.auth.onAuthStateChange((_event, session) => {
+  supabase.auth.onAuthStateChange((event, session) => {
     if (session?.user) {
       emit({ email: session.user.email ?? null })
+      // Not awaited: supabase-js holds its auth lock while this callback runs.
+      if (event === 'SIGNED_IN') void loadMerchantRules()
       void syncNow()
     } else {
+      if (event === 'SIGNED_OUT') clearUserRules()
       emit({ email: null, status: 'signedout', lastSyncedAt: null })
     }
   })
@@ -377,5 +383,10 @@ export async function changePassword(newPassword: string): Promise<string | null
 
 export async function signOutSync(): Promise<void> {
   if (!supabase) return
-  await supabase.auth.signOut()
+  try {
+    await supabase.auth.signOut()
+  } finally {
+    // The rules are this user's own; a shared browser must not keep them.
+    clearUserRules()
+  }
 }

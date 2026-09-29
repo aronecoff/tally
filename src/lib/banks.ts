@@ -3,6 +3,8 @@ import { categorize } from './categorize'
 import { db, type Transaction } from '../db/db'
 import { supabase } from '../db/supabase'
 import { syncNow } from '../sync/sync'
+import { loadMerchantRules } from '../sync/merchantRules'
+import { userRulesReady } from './userRules'
 
 /** Bank & card linking (via SimpleFIN Bridge) requires Supabase configured. */
 export const banksEnabled = !!supabase
@@ -419,6 +421,12 @@ export function syncAllConnectors(
 }
 
 async function runAllConnectors(force: boolean): Promise<{ total: number; errors: string[]; bankSkipped?: boolean }> {
+  // The user's own categorization rules live in the cloud (merchant_rules).
+  // Until a copy exists on this device (fetched now, or cached from an earlier
+  // run), every automatic re-filing waits: a fresh device would otherwise file
+  // those merchants by the built-in rules alone and push that over the cloud.
+  // Balances do not depend on categories, so they still refresh.
+  const rulesOk = (await loadMerchantRules().catch(() => false)) || userRulesReady()
   // Device sync FIRST: pull the cloud's truth (incl. `manual` pins and moved
   // dates) into Dexie before the bank overlay runs. Without this ordering, a
   // fresh boot ran the bank reconcile against pin-unaware local rows, re-dated
@@ -426,7 +434,7 @@ async function runAllConnectors(force: boolean): Promise<{ total: number; errors
   await syncNow().catch(() => {})
   // Repair anything the pull could not fix on its own, then let the debounced
   // push carry the result back up.
-  await recategorizeUncategorized().catch(() => {})
+  if (rulesOk) await recategorizeUncategorized().catch(() => {})
   // Brokerage has its own quota and is cheap; the BANK pair is the rate-limited
   // one, so it alone is gated behind the interval.
   const doBank = bankFetchDue(force)
@@ -434,7 +442,7 @@ async function runAllConnectors(force: boolean): Promise<{ total: number; errors
   const [broker, bank, tx] = await Promise.allSettled([
     syncBrokerages(),
     doBank ? syncBanks() : Promise.resolve(0),
-    doBank ? syncBankTransactions() : Promise.resolve(0),
+    doBank && rulesOk ? syncBankTransactions() : Promise.resolve(0),
   ])
   let total = 0
   const errors: string[] = []

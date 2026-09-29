@@ -15,6 +15,7 @@
 //
 // Owner identity (owner_uid) is shared with the other connectors via
 // snaptrade_user(id=1). Fail-closed while owner_uid is NULL.
+// Secrets: OWNER_EMAIL (the owner's sign-in email; unset => reject all).
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const OWNER_EMAIL = Deno.env.get("OWNER_EMAIL")?.trim().toLowerCase() || undefined;
@@ -37,7 +38,8 @@ async function requireOwner(req, uid) {
   if (!token) return json({ ok: false, error: "unauthorized" }, 401);
   const { data, error } = await supa.auth.getUser(token);
   const u = data?.user;
-  const emailOk = (u?.email ?? "").toLowerCase() === OWNER_EMAIL;
+  // An unset OWNER_EMAIL secret rejects everyone, like a NULL owner_uid.
+  const emailOk = !!OWNER_EMAIL && (u?.email ?? "").toLowerCase() === OWNER_EMAIL;
   if (error || !u || !u.email_confirmed_at || u.id !== uid || !emailOk) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
