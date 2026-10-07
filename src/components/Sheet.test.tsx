@@ -8,7 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState, type ReactElement } from 'react'
-import { Sheet, useSheetClose } from './Sheet'
+import { Sheet } from './Sheet'
+import { useSheetClose, useSheetDirty } from './sheetStack'
 
 function CloseButton({ label = 'Done' }: { label?: string }) {
   const close = useSheetClose()
@@ -173,5 +174,108 @@ describe('Sheet fail-safes', () => {
     last.focus()
     fireEvent.keyDown(window, { key: 'Tab' })
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+  })
+})
+
+/**
+ * B67: only a drag-down was guarded. Escape, a scrim tap, and a text-selection
+ * drag released over the scrim all discarded a half-typed amount. A sheet with
+ * unsaved input now stays open (and nudges); the X stays the explicit discard.
+ * The scrim closes only when the press both starts and ends on it.
+ */
+describe('Sheet: unsaved input is not lost by accident', () => {
+  function Body({ dirty }: { dirty: boolean }) {
+    useSheetDirty(dirty)
+    return <input aria-label="Amount" />
+  }
+  const backdrop = () => document.querySelector('.sheet-backdrop') as HTMLElement
+  const tapScrim = () => {
+    fireEvent.pointerDown(backdrop())
+    fireEvent.pointerUp(backdrop())
+    fireEvent.click(backdrop())
+  }
+
+  it('Escape keeps a sheet with typed input open', () => {
+    const onClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="txn" title="T" onClose={onClose}>
+        <Body dirty />
+      </Sheet>,
+    )
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('Escape keeps a sheet marked dirty by its parent open', () => {
+    const onClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="account" title="A" onClose={onClose} dirty>
+        <p>body</p>
+      </Sheet>,
+    )
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a scrim tap keeps a sheet with typed input open', () => {
+    const onClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="txn" title="T" onClose={onClose}>
+        <Body dirty />
+      </Sheet>,
+    )
+    tapScrim()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a scrim tap closes a sheet with nothing typed', () => {
+    const cleanClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="txn" title="T" onClose={cleanClose}>
+        <Body dirty={false} />
+      </Sheet>,
+    )
+    tapScrim()
+    expect(cleanClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a text-selection drag from a field released over the scrim does not close', () => {
+    const onClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="command" title="Tell Tally" onClose={onClose}>
+        <Body dirty={false} />
+      </Sheet>,
+    )
+    const field = screen.getByLabelText('Amount')
+    fireEvent.pointerDown(field)
+    fireEvent.pointerUp(backdrop())
+    // The browser sends the click to the common ancestor: the backdrop.
+    fireEvent.click(backdrop())
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a press on the scrim released inside the sheet does not close', () => {
+    const onClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="txn" title="T" onClose={onClose}>
+        <Body dirty={false} />
+      </Sheet>,
+    )
+    fireEvent.pointerDown(backdrop())
+    fireEvent.pointerUp(document.querySelector('.sheet-body') as HTMLElement)
+    fireEvent.click(backdrop())
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('the X still discards a sheet with typed input', () => {
+    const onClose = vi.fn()
+    renderInRoot(
+      <Sheet kind="txn" title="T" onClose={onClose}>
+        <Body dirty />
+      </Sheet>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

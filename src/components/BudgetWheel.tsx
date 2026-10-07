@@ -1,6 +1,7 @@
 import { useId, type CSSProperties } from 'react'
 import { money } from '../lib/format'
 import { NO_BUDGET } from '../lib/copy'
+import { assignColors } from '../lib/wheelColors'
 import { Icon } from './Icon'
 import { Money } from './Money'
 
@@ -30,26 +31,9 @@ const CY = 110
 const R_OUT = 100
 const R_IN = 70 // a thinner ring reads more refined than a fat one
 
-/**
- * Category colours: the approved earth palette, as themable tokens
- * (--cat-*, tokens.css, with light-mode variants). The colours seeded in the DB
- * are bright defaults that were never rendered, so the wheel keys off the
- * category NAME. Applied through style (var() is not reliable in SVG
- * presentation attributes in WebKit).
- */
-const CAT_KEYS = new Set(['rent', 'groceries', 'shopping', 'transport', 'dining', 'subscriptions', 'health', 'fun', 'other'])
-/** Hashed fallback for custom categories: the same palette minus Other's grey. */
-const PALETTE = ['rent', 'groceries', 'dining', 'transport', 'subscriptions', 'health', 'shopping', 'fun'].map(
-  (k) => `var(--cat-${k})`,
-)
-
-function colorFor(name: string): string {
-  const k = name.trim().toLowerCase()
-  if (CAT_KEYS.has(k)) return `var(--cat-${k})`
-  let h = 0
-  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) >>> 0
-  return PALETTE[h % PALETTE.length]
-}
+// Category colours come from lib/wheelColors (--cat-* tokens, keyed off the
+// category name; no two visible slices share one). Applied through style:
+// var() is not reliable in SVG presentation attributes in WebKit.
 
 /** Annular sector. Angles in radians, 0 = 12 o'clock, clockwise. */
 function sector(rIn: number, rOut: number, a0: number, a1: number): string {
@@ -71,7 +55,9 @@ function sector(rIn: number, rOut: number, a0: number, a1: number): string {
  * decorative for assistive tech; the legend buttons are the controls.
  */
 export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect, onGo }: Props) {
-  const hatchId = `wheel-hatch-${useId().replace(/[^\w-]/g, '')}`
+  const uid = useId().replace(/[^\w-]/g, '')
+  const hatchId = `wheel-hatch-${uid}`
+  const dotsId = `wheel-dots-${uid}`
   const spentSlices = slices.filter((s) => s.spent > 0)
   const total = spentSlices.reduce((n, s) => n + s.spent, 0)
   if (total <= 0) return null
@@ -82,17 +68,29 @@ export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect
   // in the list must not dim the whole ring.
   const activeKey = sel?.key ?? null
 
-  const arcs: (WheelSlice & { a0: number; a1: number; color: string; hatch: boolean })[] = []
+  // A custom slice with no colour left (every one taken) is dotted, never
+  // Uncategorized's hatch, which reads as unsorted money.
+  const colors = assignColors(spentSlices)
+  const arcs: (WheelSlice & { a0: number; a1: number; color: string; hatch: boolean; dots: boolean })[] = []
   let cursor = 0
   for (const s of spentSlices) {
     const a0 = cursor
     cursor += (s.spent / total) * Math.PI * 2
-    arcs.push({ ...s, a0, a1: cursor, color: colorFor(s.name), hatch: s.key === 'uncat' })
+    const hatch = s.key === 'uncat'
+    const color = colors.get(s.key)
+    arcs.push({ ...s, a0, a1: cursor, color: color ?? 'var(--cat-other)', hatch, dots: !hatch && color === null })
   }
+  const anyDots = arcs.some((a) => a.dots)
 
   const toggle = (key: string) => onSelect(selected === key ? null : key)
-  const dot = (a: { color: string; hatch: boolean }, className: string) =>
-    a.hatch ? <i className={`${className} is-hatch`} /> : <i className={className} style={{ background: a.color }} />
+  const dot = (a: { color: string; hatch: boolean; dots: boolean }, className: string) =>
+    a.hatch ? (
+      <i className={`${className} is-hatch`} />
+    ) : a.dots ? (
+      <i className={`${className} is-dots`} />
+    ) : (
+      <i className={className} style={{ background: a.color }} />
+    )
 
   const selArc = arcs.find((a) => a.key === activeKey) ?? null
   const selTone = sel ? (sel.state === 'over' ? 'over' : sel.state === 'pace' || sel.state === 'near' ? 'near' : '') : ''
@@ -115,6 +113,12 @@ export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect
               <rect width="4" height="4" style={{ fill: 'var(--cat-other)', fillOpacity: 0.3 }} />
               <rect width="1.6" height="4" style={{ fill: 'var(--cat-other)' }} />
             </pattern>
+            {anyDots && (
+              <pattern id={dotsId} width="4" height="4" patternUnits="userSpaceOnUse">
+                <rect width="4" height="4" style={{ fill: 'var(--cat-other)', fillOpacity: 0.3 }} />
+                <circle cx="2" cy="2" r="1.1" style={{ fill: 'var(--cat-other)' }} />
+              </pattern>
+            )}
           </defs>
           {/* The hole clears the selection. */}
           <circle className="wheel-hole" cx={CX} cy={CY} r={R_IN} fill="transparent" onClick={() => onSelect(null)} />
@@ -128,7 +132,11 @@ export function BudgetWheel({ slices, totalLimit, totalSpent, selected, onSelect
                 key={a.key}
                 className={`wheel-slice${activeKey === a.key ? ' sel' : ''}${activeKey && activeKey !== a.key ? ' dim' : ''}`}
                 d={sector(R_IN, R_OUT, a0, a1)}
-                {...(a.hatch ? { fill: `url(#${hatchId})` } : { style: { fill: a.color } })}
+                {...(a.hatch
+                  ? { fill: `url(#${hatchId})` }
+                  : a.dots
+                    ? { fill: `url(#${dotsId})` }
+                    : { style: { fill: a.color } })}
                 onClick={() => toggle(a.key)}
               />
             )

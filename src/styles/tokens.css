@@ -35,7 +35,9 @@
     --elev-sheet: 0 -16px 48px -16px rgb(0 0 0 / 0.7);
     --elev-thumb: none; /* the seg thumb shadow exists in light only */
 
-    /* Category palette (Budget wheel): approved colours, unchanged. */
+    /* Category palette (Budget wheel): approved colours. Every pair but Other
+       is ≥10 ΔE2000 apart (tokens.test.ts). B69: fun was #B08E5E, 8.3 from
+       transport; now the one free hue family left, a muted teal. */
     --cat-rent: #6F91A3;
     --cat-groceries: #6E8060;
     --cat-shopping: #8FA083;
@@ -43,7 +45,7 @@
     --cat-dining: #C98A7E;
     --cat-subscriptions: #8C7FA8;
     --cat-health: #B9808F;
-    --cat-fun: #B08E5E;
+    --cat-fun: #6A9E96;
     --cat-other: #8A867E;
 
     /* Tier palette (Accounts map). */
@@ -84,15 +86,18 @@
        the rendered canvas (Paper under the grain, #F3EEE3) dining and health
        measured 2.98:1 and transport 3.00:1, so those three are 0.5% lightness
        deeper, same hue (3.05:1). Was transport #A18656, dining #B57C71,
-       health #B27B89. The rest already clear 3:1 and are unchanged. */
+       health #B27B89. The rest already clear 3:1 and are unchanged.
+       B69: every pair but Other is ≥10 ΔE2000 apart (tokens.test.ts). Fun was
+       #A48457, 2.5 from transport: now teal, 3.43:1 on the canvas. Groceries
+       was #66785A, 9.1 from shopping: a step deeper, same hue (4.33:1). */
     --cat-rent: #6D8EA0;
-    --cat-groceries: #66785A;
+    --cat-groceries: #617557;
     --cat-shopping: #7F8E75;
     --cat-transport: #9F8555;
     --cat-dining: #B47A6F;
     --cat-subscriptions: #7E7199;
     --cat-health: #B17988;
-    --cat-fun: #A48457;
+    --cat-fun: #4F8A82;
     --cat-other: #7D7970;
 
     --tier-cash: #6E7F62;

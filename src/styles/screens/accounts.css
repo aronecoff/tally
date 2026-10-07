@@ -161,6 +161,15 @@
     padding-top: 5px;
   }
 
+  /* A tall narrow tile: the amount alone, reading bottom to top up its left
+     side, 8px from the bottom (vertical-rl turned half round: sideways-lr is
+     missing on older iOS). Accounts.tsx checks it fits clear of the tier rule. */
+  .nwmap-label.vert {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    padding: 8px 6px 0 0;
+  }
+
   .nwmap-name {
     max-width: 100%;
     font-size: var(--fs-micro);
@@ -403,6 +412,22 @@
   @keyframes nwSpin {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  /* 320: a long name wraps to a second line rather than two rows both reading
+     'Citizens Private Ba…', and the sub-line drops its verb ('··1111 · 12d ago'). */
+  @media (max-width: 359px) {
+    .acct-name {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
+    .acct-sub-verb {
+      display: none;
     }
   }
 

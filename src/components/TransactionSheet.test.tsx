@@ -344,13 +344,15 @@ describe('TransactionSheet — Enter', () => {
     render(<TransactionSheet categories={CATEGORIES} initial={PAY} onClose={() => {}} />)
     await waitFor(() => expect(selectedChip()).toEqual(['Salary']))
 
+    // A real edit (an unchanged Enter writes nothing at all, B13).
+    fireEvent.change(amountInput(), { target: { value: '2900' } })
     pressEnter(amountInput())
     await waitFor(async () => {
       const saved = await db.transactions.get(43)
       expect(saved?.manual).toBe(true)
       expect(saved?.type).toBe('income')
       expect(saved?.categoryId).toBe(7)
-      expect(saved?.amount).toBe(2875)
+      expect(saved?.amount).toBe(2900)
     })
     // No stray default button was clicked on the way: the type shown is still Income.
     expect(seg('Income').getAttribute('aria-checked')).toBe('true')
@@ -425,5 +427,136 @@ describe('TransactionSheet — unsaved edits survive a drag down', () => {
     await flush()
     dragDown()
     expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+describe('TransactionSheet — filing a bank payment as Rent', () => {
+  const RENT_CATS: Category[] = [...CATEGORIES, { id: 3, name: 'Rent', icon: 'home', color: '#fff', kind: 'expense', monthlyBudget: 2400, sortOrder: 2, updatedAt: 0 }]
+  const ZELLE: Transaction = {
+    id: 50, uid: 'sf:z1', date: '2026-09-27', amount: 2400, type: 'expense', categoryId: null, account: 'Checking', note: 'Zelle to J Quince', createdAt: 0, updatedAt: 0,
+  }
+  const dateInput = () => document.querySelector('input[type="date"]') as HTMLInputElement
+
+  beforeEach(async () => {
+    await db.transactions.put(ZELLE)
+  })
+
+  it('moves it to the 1st it pays for, shown before Save', async () => {
+    render(<TransactionSheet categories={RENT_CATS} initial={ZELLE} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Rent'))
+    expect(dateInput().value).toBe('2026-10-01')
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(50)).toMatchObject({ categoryId: 3, date: '2026-10-01', manual: true }))
+  })
+
+  it('a date the user set is kept', async () => {
+    render(<TransactionSheet categories={RENT_CATS} initial={ZELLE} onClose={() => {}} />)
+    fireEvent.change(dateInput(), { target: { value: '2026-09-28' } })
+    fireEvent.click(screen.getByText('Rent'))
+    expect(dateInput().value).toBe('2026-09-28')
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(50)).toMatchObject({ categoryId: 3, date: '2026-09-28' }))
+  })
+
+  it('a hand-typed row keeps its date', async () => {
+    const typed = { ...ZELLE, id: 51, uid: 'typed-1' }
+    await db.transactions.put(typed)
+    render(<TransactionSheet categories={RENT_CATS} initial={typed} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Rent'))
+    expect(dateInput().value).toBe('2026-09-27')
+  })
+
+  it('keeps the posted day beside the moved date', async () => {
+    render(<TransactionSheet categories={RENT_CATS} initial={ZELLE} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Rent'))
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(50)).toMatchObject({ date: '2026-10-01', posted: '2026-09-27' }))
+  })
+})
+
+describe('TransactionSheet — moving a bank payment out of Rent', () => {
+  const RENT_CATS: Category[] = [...CATEGORIES, { id: 3, name: 'Rent', icon: 'home', color: '#fff', kind: 'expense', monthlyBudget: 2400, sortOrder: 2, updatedAt: 0 }]
+  // Rent paid on the 27th, dated the 1st it pays for by the bank sync.
+  const RENT: Transaction = {
+    id: 60, uid: 'sf:r1', date: '2026-10-01', posted: '2026-09-27', amount: 2400, type: 'expense', categoryId: 3, account: 'Checking',
+    note: 'Zelle to J Quince', createdAt: 0, updatedAt: 0,
+  }
+  const dateInput = () => document.querySelector('input[type="date"]') as HTMLInputElement
+
+  it('puts back the day the bank posted it, shown before Save', async () => {
+    await db.transactions.put(RENT)
+    const other = CATEGORIES.find((c) => c.kind === 'expense' && c.id !== 3)!
+    render(<TransactionSheet categories={RENT_CATS} initial={RENT} onClose={() => {}} />)
+    expect(dateInput().value).toBe('2026-10-01')
+    fireEvent.click(screen.getByText(other.name))
+    expect(dateInput().value).toBe('2026-09-27')
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(60)).toMatchObject({ categoryId: other.id, date: '2026-09-27', manual: true }))
+  })
+
+  it('a row with no posted day keeps its date', async () => {
+    const old = { ...RENT, id: 61, uid: 'sf:r2', posted: undefined }
+    await db.transactions.put(old)
+    const other = CATEGORIES.find((c) => c.kind === 'expense' && c.id !== 3)!
+    render(<TransactionSheet categories={RENT_CATS} initial={old} onClose={() => {}} />)
+    fireEvent.click(screen.getByText(other.name))
+    expect(dateInput().value).toBe('2026-10-01')
+  })
+})
+
+
+describe('TransactionSheet — a date set here is marked as moved (Transaction.dateMoved)', () => {
+  const RENT_CATS: Category[] = [...CATEGORIES, { id: 3, name: 'Rent', icon: 'home', color: '#fff', kind: 'expense', monthlyBudget: 2400, sortOrder: 2, updatedAt: 0 }]
+  // A pending card charge, still on the bank's day.
+  const HOLD: Transaction = {
+    id: 70, uid: 'sf:h1', date: '2026-09-29', posted: '2026-09-29', pending: true, amount: 80, type: 'expense', categoryId: 2,
+    account: 'Card', note: 'PLONK MARKET', createdAt: 0, updatedAt: 0,
+  }
+  const dateInput = () => document.querySelector('input[type="date"]') as HTMLInputElement
+
+  beforeEach(async () => {
+    await db.transactions.put(HOLD)
+  })
+
+  it('a new date is marked, so the bank never re-dates it', async () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={HOLD} onClose={() => {}} />)
+    fireEvent.change(dateInput(), { target: { value: '2026-09-30' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(70)).toMatchObject({ date: '2026-09-30', dateMoved: true, manual: true }))
+  })
+
+  it('an edit that leaves the date is not a move', async () => {
+    render(<TransactionSheet categories={CATEGORIES} initial={HOLD} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Groceries'))
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(70)).toMatchObject({ categoryId: 1, manual: true }))
+    expect((await db.transactions.get(70))?.dateMoved).toBeUndefined()
+  })
+
+  it("the bank's own day put back is not a move", async () => {
+    const moved = { ...HOLD, date: '2026-10-02', dateMoved: true }
+    await db.transactions.put(moved)
+    render(<TransactionSheet categories={CATEGORIES} initial={moved} onClose={() => {}} />)
+    fireEvent.change(dateInput(), { target: { value: '2026-09-29' } })
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(70)).toMatchObject({ date: '2026-09-29', dateMoved: false }))
+  })
+
+  it('a re-file into Rent that moves it to the 1st is marked', async () => {
+    const rent = { ...HOLD, date: '2026-09-27', posted: '2026-09-27', categoryId: null }
+    await db.transactions.put(rent)
+    render(<TransactionSheet categories={RENT_CATS} initial={rent} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Rent'))
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(70)).toMatchObject({ date: '2026-10-01', posted: '2026-09-27', dateMoved: true }))
+  })
+
+  it("a re-file out of Rent that puts back the bank's day clears the mark", async () => {
+    const rent = { ...HOLD, date: '2026-10-01', posted: '2026-09-27', categoryId: 3, dateMoved: true }
+    await db.transactions.put(rent)
+    render(<TransactionSheet categories={RENT_CATS} initial={rent} onClose={() => {}} />)
+    fireEvent.click(screen.getByText('Groceries'))
+    fireEvent.click(screen.getByText('Save'))
+    await waitFor(async () => expect(await db.transactions.get(70)).toMatchObject({ categoryId: 1, date: '2026-09-27', dateMoved: false }))
   })
 })

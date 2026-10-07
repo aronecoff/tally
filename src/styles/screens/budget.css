@@ -208,12 +208,32 @@
     white-space: nowrap;
   }
 
+  /* Tags (Pending, Refund) then the merchant, which alone ends in '…'. */
   .bud-txn-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
     min-width: 0;
     color: var(--text-2);
-    white-space: nowrap;
+  }
+
+  .bud-txn-note > .refund-chip,
+  .bud-txn-note > .pending-chip {
+    flex: none;
+  }
+
+  /* A flex item trims its own spaces: keep the ones around the dot. */
+  .bud-txn-note > .meta-sep {
+    flex: none;
+    white-space: pre;
+  }
+
+  .bud-txn-name {
+    flex: 1 1 0;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .bud-txn-amt {
@@ -221,6 +241,21 @@
     color: var(--text-1);
     text-align: right;
     white-space: nowrap;
+  }
+
+  /* Money back. Here, not just .pos: @layer screens beats base's .pos. */
+  .bud-txn-amt.pos {
+    color: var(--ok);
+  }
+
+  /* 320: the merchant gets its own full line under its tag, not 'REFUND · Am…'. */
+  @media (max-width: 359px) {
+    .bud-txn-note > .meta-sep:has(+ .bud-txn-name) {
+      display: none;
+    }
+    .bud-txn-note > .bud-txn-name {
+      flex-basis: 100%;
+    }
   }
 
   /* Centred under the head chevron (14px there, 12px here). */
@@ -362,20 +397,16 @@
     transition: opacity var(--dur-1) var(--ease-out);
   }
 
-  /* Above the first legend row's hit slop, which reaches 4px into the slot. */
-  .wheel-go {
-    position: relative;
-    z-index: 1;
-  }
-
   .wheel-go:active {
     opacity: 0.6;
   }
 
-  /* Legend: ranked, flowing down the columns (1-3 left, 4-6 right). */
+  /* Legend: ranked, flowing down the columns (1-3 left, 4-6 right). The top
+     margin is the first row's hit-slop overhang (4px), so that slop ends where
+     the 44pt link slot above ends and neither takes the other's taps. */
   .wheel-key {
     list-style: none;
-    margin: 0;
+    margin: calc((var(--hit) - var(--ctl-md)) / 2) 0 0;
     padding: 0;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -451,6 +482,18 @@
       var(--cat-other) 0 1.6px,
       color-mix(in srgb, var(--cat-other) 30%, transparent) 1.6px 4px
     );
+  }
+
+  /* A custom category with no colour left (BudgetWheel): dotted, as on its
+     slice, so it never reads as Uncategorized's hatch. */
+  .wheel-key-dot.is-dots,
+  .wheel-center-dot.is-dots {
+    background: radial-gradient(
+        circle,
+        var(--cat-other) 0 1.1px,
+        color-mix(in srgb, var(--cat-other) 30%, transparent) 1.4px
+      )
+      0 0 / 4px 4px;
   }
 
   .wheel-key-name {

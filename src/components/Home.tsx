@@ -1,13 +1,15 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
-import { currentMonth, todayISO, monthShortLabel, dayLabel } from '../lib/dates'
-import { paceProjector } from '../lib/projection'
-import { isFixedCategory } from '../lib/categorize'
+import { monthShortLabel, dayLabel, shiftDayISO, shiftMonth } from '../lib/dates'
+import { useToday } from '../lib/useToday'
+import { BILL_MONTHS, flexibleSpend, oneOffRows, paceProjector } from '../lib/projection'
+import { awaitingPay } from '../lib/payday'
+import { isFixed } from '../lib/categorize'
 import { cleanMerchant } from '../lib/merchants'
 import { isRefund } from '../lib/ledger'
-import { money, pct } from '../lib/format'
-import { rowState, budgetStatus, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET, BY_MONTH_END } from '../lib/copy'
+import { money, pct, toCents } from '../lib/format'
+import { rowState, budgetStatus, beforePayday, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET, BY_MONTH_END } from '../lib/copy'
 import { Icon } from './Icon'
 import { Money } from './Money'
 import { Pending } from './Pending'
@@ -89,21 +91,27 @@ const railP = (p: number) => ({ '--p': Math.max(0, Math.min(1, p)) }) as CSSProp
  * (always shown on the wide desktop).
  */
 export const Home = memo(function Home({ categories, onEdit, onMore, active, onSort, onOpenCategory }: Props) {
-  const month = currentMonth()
-  const today = todayISO()
-  const now = new Date()
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-  const dayOfMonth = now.getDate()
+  // The clock as a subscription: left open overnight, Home moves to the new
+  // day (and month) on resume instead of waiting for a tab change.
+  const today = useToday()
+  const month = today.slice(0, 7)
+  const [yy, mm, dd] = today.split('-').map(Number)
+  const daysInMonth = new Date(yy, mm, 0).getDate()
+  const dayOfMonth = dd
 
   // No [] defaults: undefined means "still loading" and shows the skeleton, so
   // Home never flashes $0.00 or a false 'all on track'.
   const liveMonth = useLiveQuery(() => db.transactions.where('date').startsWith(month).toArray(), [month])
-  const since = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 100)
-    return d.toISOString().slice(0, 10)
-  }, [])
-  const liveRecent = useLiveQuery(() => db.transactions.where('date').aboveOrEqual(since).toArray(), [since])
+  // Recurring bills look back 100 days. The forecast's bill history (oneOffRows)
+  // needs the BILL_MONTHS whole months before this one, exactly as Budget
+  // queries them: after about the 9th, 100 days stops short of the first of
+  // them, and Home took a bill Budget counted once at daily pace.
+  const since = useMemo(() => shiftDayISO(today, -100), [today])
+  const from = useMemo(() => {
+    const billsFrom = `${shiftMonth(month, -BILL_MONTHS)}-01`
+    return billsFrom < since ? billsFrom : since
+  }, [month, since])
+  const liveRecent = useLiveQuery(() => db.transactions.where('date').aboveOrEqual(from).toArray(), [from])
 
   const monthTxns = useWhileActive(liveMonth, active)
   const recentTxns = useWhileActive(liveRecent, active)
@@ -116,25 +124,39 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   }, [cats])
 
   const d = useMemo(() => {
-    let income = 0
-    let spend = 0
-    const byCat = new Map<number | null, number>()
+    // Summed in whole cents and divided once, so a category that is exactly
+    // its budget (or exactly refunded to zero) is exactly that, never
+    // '$0.00 over' or '−$0.00' from float residue.
+    let incomeC = 0
+    let spendC = 0
+    const byCatC = new Map<number | null, number>()
+    // One-off rows count once, never at daily pace: big rows, refunds and
+    // monthly bills (projection.oneOffRows, from the last few months' rows).
+    const lumpByCatC = new Map<number | null, number>()
+    const once = oneOffRows(monthTxns ?? EMPTY, recentTxns ?? EMPTY, month)
     const countByCat = new Map<number | null, number>()
     const pendingByCat = new Map<number | null, number>()
-    const daily = new Array(daysInMonth).fill(0)
+    const dailyC = new Array(daysInMonth).fill(0)
     for (const t of monthTxns ?? EMPTY) {
       if (t.deleted) continue
+      const c = toCents(t.amount)
       if (t.type === 'income') {
-        income += t.amount
+        incomeC += c
       } else {
-        spend += t.amount
-        byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
+        spendC += c
+        byCatC.set(t.categoryId, (byCatC.get(t.categoryId) ?? 0) + c)
+        if (once.has(t)) lumpByCatC.set(t.categoryId, (lumpByCatC.get(t.categoryId) ?? 0) + c)
         countByCat.set(t.categoryId, (countByCat.get(t.categoryId) ?? 0) + 1)
         if (t.pending) pendingByCat.set(t.categoryId, (pendingByCat.get(t.categoryId) ?? 0) + 1)
         const day = Number(t.date.slice(8, 10))
-        if (day >= 1 && day <= daysInMonth) daily[day - 1] += t.amount
+        if (day >= 1 && day <= daysInMonth) dailyC[day - 1] += c
       }
     }
+    const income = incomeC / 100
+    const spend = spendC / 100
+    const spentIn = (id: number | null) => (byCatC.get(id) ?? 0) / 100
+    const lumpIn = (id: number | null) => (lumpByCatC.get(id) ?? 0) / 100
+    const daily = dailyC.map((c: number) => c / 100)
     // All pace math lives in lib/projection.ts (shared with the Budget tab).
     const p = paceProjector(dayOfMonth, daysInMonth)
     const divisor = dayOfMonth > 0 ? dayOfMonth : daysInMonth
@@ -142,35 +164,44 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     const expenseCats = cats.filter((c) => c.kind === 'expense' && !c.deleted)
     const catSpends = expenseCats.map((c) => ({
       name: c.name,
-      spent: byCat.get(c.id!) ?? 0,
+      spent: spentIn(c.id!),
       budget: c.monthlyBudget || 0,
+      fixed: isFixed(c),
+      lump: lumpIn(c.id!),
     }))
     const rows: Row[] = expenseCats
       .map((c) => {
-        const spent = byCat.get(c.id!) ?? 0
+        const spent = spentIn(c.id!)
         const budget = c.monthlyBudget || 0
+        const fixed = isFixed(c)
         return {
           id: c.id!,
           name: c.name,
           icon: c.icon,
           spent,
           budget,
-          projected: p.forCategory(c.name, spent, budget),
-          fixed: isFixedCategory(c.name),
+          projected: p.forCategory(c.name, spent, budget, { fixed, lump: lumpIn(c.id!) }),
+          fixed,
           txnCount: countByCat.get(c.id!) ?? 0,
           pendingCount: pendingByCat.get(c.id!) ?? 0,
         }
       })
-      .filter((r) => r.spent > 0 || r.budget > 0)
-    const uncat = byCat.get(null) ?? 0
-    if (uncat > 0) {
+      // A category with no budget stays while it has rows this month, a net
+      // refund included: dropped, the rows no longer added up to Spending.
+      .filter((r) => r.budget > 0 || r.spent !== 0 || r.txnCount > 0)
+    const uncat = spentIn(null)
+    const uncatLump = lumpIn(null)
+    // Uncategorized is listed whenever rows sit in it, even when a refund
+    // there outweighs the purchases: the purchases still need a category, and
+    // this row is Home's way into the sort queue.
+    if (uncat !== 0 || (countByCat.get(null) ?? 0) > 0) {
       rows.push({
         id: null,
         name: 'Uncategorized',
         icon: 'tag',
         spent: uncat,
         budget: 0,
-        projected: p.extrapolate(uncat),
+        projected: p.forCategory('Uncategorized', uncat, 0, { fixed: false, lump: uncatLump }),
         fixed: false,
         txnCount: countByCat.get(null) ?? 0,
         pendingCount: pendingByCat.get(null) ?? 0,
@@ -178,26 +209,37 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     }
     rows.sort((a, b) => b.spent - a.spent)
 
-    const totalBudget = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
+    const totalBudget = expenseCats.reduce((s, c) => s + toCents(c.monthlyBudget || 0), 0) / 100
     const maxDaily = Math.max(1, ...daily)
+    // The one-offs outside fixed bills: what the projection takes once.
+    const flexLumpC = catSpends.reduce((s, c) => (c.fixed ? s : s + toCents(c.lump)), toCents(uncatLump))
     return {
       income,
       spend,
-      net: income - spend,
+      net: (incomeC - spendC) / 100,
       daily,
       maxDaily,
       rows,
       totalBudget,
-      projectedTotal: p.monthEnd(catSpends, spend),
+      projectedTotal: p.monthEnd(catSpends, spend, uncatLump),
       canProject: p.canProject,
-      avgPerDay: Math.round(spend / divisor),
+      // Flexible spending at its daily pace: rent on the 1st made this read
+      // ~$913 a day, and a refund or a monthly bill is not a day's spending.
+      avgPerDay: Math.round((flexibleSpend(catSpends, spend) - flexLumpC / 100) / divisor),
+      // Before payday (lib/payday.ts, shared with Budget and Insights).
+      awaitingIncome: awaitingPay(month, monthTxns ?? EMPTY, recentTxns ?? EMPTY, cats),
     }
-  }, [monthTxns, cats, daysInMonth, dayOfMonth])
+  }, [monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth])
 
   // Recurring bills: an expense whose merchant recurs across ≥2 distinct months.
   const bills = useMemo(() => {
     const groups = new Map<string, { name: string; months: Set<string>; last: number; lastDate: string; catId: number | null }>()
     for (const t of recentTxns ?? EMPTY) {
+      // The last 100 days (the query reaches further back for the forecast).
+      if (t.date < since) continue
+      // Rent paid early is dated the 1st it pays for: it still marks the
+      // month, but a future day is never the 'last' charge.
+      const future = t.date > today
       // A refund is not a bill landing (and would show as a negative 'last').
       if (t.deleted || t.type !== 'expense' || isRefund(t)) continue
       // Group by the CLEANED merchant, or "SAFEWAY #1234" and "SAFEWAY #5678"
@@ -206,10 +248,11 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
       if (!key) continue
       const g = groups.get(key)
       const m = t.date.slice(0, 7)
-      if (!g) groups.set(key, { name: cleanMerchant(t.note), months: new Set([m]), last: t.amount, lastDate: t.date, catId: t.categoryId })
-      else {
+      if (!g) {
+        groups.set(key, { name: cleanMerchant(t.note), months: new Set([m]), last: future ? 0 : t.amount, lastDate: future ? '' : t.date, catId: t.categoryId })
+      } else {
         g.months.add(m)
-        if (t.date > g.lastDate) {
+        if (!future && t.date > g.lastDate) {
           g.lastDate = t.date
           g.last = t.amount
           g.catId = t.categoryId
@@ -217,10 +260,10 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
       }
     }
     return [...groups.values()]
-      .filter((g) => g.months.size >= 2)
+      .filter((g) => g.months.size >= 2 && g.lastDate !== '')
       .sort((a, b) => b.last - a.last)
       .slice(0, 6)
-  }, [recentTxns])
+  }, [recentTxns, today, since])
 
   const todays = useMemo(
     () => (monthTxns ?? EMPTY).filter((t) => !t.deleted && t.date === today).sort((a, b) => (b.id ?? 0) - (a.id ?? 0)),
@@ -254,7 +297,12 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   // same question as "am I inside my means", so the hero says which one it is
   // and the net sits below it as its own line; otherwise a green "on track"
   // sits directly above a red "over income" and the two read as a contradiction.
-  const overIncome = inTotal > 0 && outTotal > inTotal
+  // Income lands on payday: before it does, a month that has only spent is
+  // not 'Overspent' (that read every month until the first deposit), and an
+  // interest credit on the 7th is not pay (lib/payday.ts).
+  const awaitingIncome = d.awaitingIncome
+  const overIncome = inTotal > 0 && outTotal > inTotal && !awaitingIncome
+  const waitWord = beforePayday(inTotal)
   const overBudget = d.totalBudget > 0 && d.spend > d.totalBudget
   const overPaceBudget = d.totalBudget > 0 && !overBudget && d.canProject && d.projectedTotal > d.totalBudget
   const budgetPct = d.totalBudget > 0 ? Math.min(100, (d.spend / d.totalBudget) * 100) : 0
@@ -341,7 +389,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     const { state, status } = statusOf(r)
     const withBudget = r.budget > 0
     const fill = state === 'over' || state === 'pace' ? state : 'ok'
-    const showMeta = state !== 'ok'
+    const showMeta = state !== 'ok' || r.spent < 0
     return (
       <li key={r.id ?? 'uncat'} className={`row-sep traj-row home-brow${showMeta ? ' has-meta' : ''}`}>
         <span className={`cat-tile${tileClass(state)}`}>
@@ -364,8 +412,11 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     )
   }
 
-  const spentRows = d.rows.filter((r) => r.spent > 0)
-  const quiet = d.rows.filter((r) => r.spent === 0 && r.budget > 0)
+  // The Budget tab's idle rule: budgeted, nothing spent and nothing filed. A
+  // category whose refunds outweigh its purchases (spent < 0) is active.
+  const isQuiet = (r: Row) => r.budget > 0 && r.spent === 0 && r.txnCount === 0
+  const spentRows = d.rows.filter((r) => !isQuiet(r))
+  const quiet = d.rows.filter(isQuiet)
   const quietLine = (() => {
     if (quiet.length === 0) return null
     const names = quiet.map((r) => r.name)
@@ -410,12 +461,24 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
           ) : hasActivity ? (
             <>
               {/* No budgets set: the net is the hero, with the same anatomy. */}
-              <span className={`hero-state ${d.net >= 0 ? 'ok' : 'over'}`}>{d.net >= 0 ? SAVED : OVERSPENT}</span>
-              <div className="hero-fig">
-                <Money value={Math.abs(d.net)} />
-              </div>
-              {d.net >= 0 && inTotal > 0 && (
-                <span className="hero-caption num">{pct((d.net / inTotal) * 100)} of income</span>
+              {awaitingIncome ? (
+                <>
+                  <span className="hero-state">{waitWord}</span>
+                  <div className="hero-fig">
+                    <Money value={outTotal} />
+                  </div>
+                  <span className="hero-caption num">spent so far</span>
+                </>
+              ) : (
+                <>
+                  <span className={`hero-state ${d.net >= 0 ? 'ok' : 'over'}`}>{d.net >= 0 ? SAVED : OVERSPENT}</span>
+                  <div className="hero-fig">
+                    <Money value={Math.abs(d.net)} />
+                  </div>
+                  {d.net >= 0 && inTotal > 0 && (
+                    <span className="hero-caption num">{pct((d.net / inTotal) * 100)} of income</span>
+                  )}
+                </>
               )}
             </>
           ) : (
@@ -444,11 +507,18 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
             </div>
             {hasBudget && hasActivity && (
               <div className="home-net">
-                <span className="home-net-label">{d.net >= 0 ? `${SAVED} so far` : `${OVERSPENT} so far`}</span>
-                <span className={`home-net-fig num ${d.net >= 0 ? 'pos' : 'over'}`}>
-                  {money(Math.abs(d.net))}
-                  {d.net >= 0 && inTotal > 0 && <em> · {pct((d.net / inTotal) * 100)} of income</em>}
-                </span>
+                {awaitingIncome ? (
+                  // The Spending row right above already carries the figure.
+                  <span className="home-net-label muted">{waitWord}</span>
+                ) : (
+                  <>
+                    <span className="home-net-label">{d.net >= 0 ? `${SAVED} so far` : `${OVERSPENT} so far`}</span>
+                    <span className={`home-net-fig num ${d.net >= 0 ? 'pos' : 'over'}`}>
+                      {money(Math.abs(d.net))}
+                      {d.net >= 0 && inTotal > 0 && <em> · {pct((d.net / inTotal) * 100)} of income</em>}
+                    </span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -545,9 +615,13 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
           <section className="sect enter">
             <div className="sect-row">
               <h2 className="sect-title">Day by day</h2>
-              <span className="sect-note num">~{money(d.avgPerDay, { approx: true })}/day</span>
+              <span className="sect-note num">~{money(d.avgPerDay, { approx: true })}/day excl. bills</span>
             </div>
-            <div className="daily" role="img" aria-label={`Spending by day, about ${money(d.avgPerDay, { approx: true })} a day`}>
+            <div
+              className="daily"
+              role="img"
+              aria-label={`Spending by day; flexible spending about ${money(d.avgPerDay, { approx: true })} a day, excluding bills and one-offs`}
+            >
               {d.daily.map((amt, i) => {
                 // Bars are DIRECT flex children with explicit px heights: the
                 // wrapper-column + percentage-height version misrendered in WebKit

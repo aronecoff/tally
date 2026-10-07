@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { budgetStatus, GLOSSARY, rowState, type BudgetStatusInput } from './copy'
+import { beforePayday, budgetStatus, GLOSSARY, NO_INCOME_YET, NO_PAY_YET, rowState, type BudgetStatusInput } from './copy'
 
 describe('rowState (verbatim Dashboard thresholds)', () => {
   const base = { spent: 0, limit: 500, projected: 0, isCurrent: true }
@@ -83,6 +83,12 @@ describe('budgetStatus', () => {
     expect(budgetStatus(s({ limit: 0, spent: 40, state: 'none', txnCount: 4 })).text).toBe('No budget · 4 transactions')
   })
 
+  it('refunds bigger than the purchases: the budget is left, and what came back is said', () => {
+    expect(budgetStatus(s({ spent: -176, limit: 1150, state: 'ok' }))).toEqual({ text: '$1,150 left · $176.00 back', tone: 'muted' })
+    // A category with no budget keeps its own line.
+    expect(budgetStatus(s({ spent: -12, limit: 0, state: 'none', txnCount: 2 })).text).toBe('No budget · 2 transactions')
+  })
+
   it('uncategorized with posted charges: n to categorize (pending excluded)', () => {
     expect(
       budgetStatus(s({ name: 'Uncategorized', limit: 0, state: 'none', isUncategorized: true, txnCount: 6, pendingCount: 2 })),
@@ -107,5 +113,10 @@ describe('glossary', () => {
       noBudget: 'No budget',
       delete: 'Delete',
     })
+    expect(NO_INCOME_YET).toBe('No income yet')
+    expect(NO_PAY_YET).toBe('No pay yet')
+    // With a credit already in, 'Income $12.40 · No income yet' contradicted itself.
+    expect(beforePayday(0)).toBe(NO_INCOME_YET)
+    expect(beforePayday(12.4)).toBe(NO_PAY_YET)
   })
 })

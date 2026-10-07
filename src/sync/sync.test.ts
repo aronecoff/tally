@@ -10,16 +10,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const h = vi.hoisted(() => ({
   remoteTx: [] as Record<string, unknown>[],
   beforeTxSelect: null as null | (() => Promise<void>),
+  // A PostgREST-style read: the pull pages by id (order, limit, gt) until an
+  // empty page. Every row comes back on the first page here.
+  pageOf: (rows: () => Promise<Record<string, unknown>[]>) => {
+    type Res = { data: Record<string, unknown>[]; error: null }
+    let after: string | null = null
+    const q: PromiseLike<Res> & { order: () => typeof q; limit: () => typeof q; gt: (c: string, v: string) => typeof q } = {
+      order: () => q,
+      limit: () => q,
+      gt: (_c, v) => ((after = v), q),
+      then: (ok, bad) => (after == null ? rows() : Promise.resolve([])).then((data) => ({ data, error: null })).then(ok, bad),
+    }
+    return q
+  },
 }))
 
 vi.mock('../db/supabase', () => ({
   supabase: {
     auth: { getSession: async () => ({ data: { session: { user: { id: 'u1', email: 'owner@example.com' } } } }) },
     from: (table: string) => ({
-      select: async () => {
-        if (table === 'transactions' && h.beforeTxSelect) await h.beforeTxSelect()
-        return { data: table === 'transactions' ? h.remoteTx : [], error: null }
-      },
+      select: () =>
+        h.pageOf(async () => {
+          if (table === 'transactions' && h.beforeTxSelect) await h.beforeTxSelect()
+          return table === 'transactions' ? h.remoteTx : []
+        }),
       upsert: async () => ({ error: null }),
     }),
   },

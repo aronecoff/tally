@@ -2,7 +2,8 @@
  * The connector loop waits for the user's own categorization rules before it
  * re-files anything. A fresh device with no copy of them would otherwise file
  * those merchants by the built-in rules alone and push that over the cloud.
- * Balances do not depend on categories, so they refresh either way.
+ * Brokerage balances refresh either way; the rate-limited bank pair waits for
+ * the rules, so its 6-hour floor is not spent on balances alone.
  */
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,12 +16,22 @@ const h = vi.hoisted(() => ({
   loadMerchantRules: vi.fn(async () => false),
 }))
 
-vi.mock('../db/supabase', () => ({
-  supabase: {
-    functions: { invoke: h.invoke },
-    auth: { getSession: async () => ({ data: { session: null } }) },
-  },
-}))
+vi.mock('../db/supabase', () => {
+  // Signed in, with an empty cloud: the bank pair runs only after a good pull.
+  const empty = {
+    order: () => empty,
+    limit: () => empty,
+    gt: () => empty,
+    then: (ok: (v: { data: never[]; error: null }) => unknown) => Promise.resolve({ data: [], error: null }).then(ok),
+  }
+  return {
+    supabase: {
+      functions: { invoke: h.invoke },
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u1', email: 'owner@example.com' } } } }) },
+      from: () => ({ select: () => empty, upsert: async () => ({ error: null }) }),
+    },
+  }
+})
 vi.mock('../sync/merchantRules', () => ({ loadMerchantRules: h.loadMerchantRules }))
 
 import { syncAllConnectors } from './banks'
@@ -46,10 +57,11 @@ beforeEach(async () => {
 afterEach(() => clearUserRules())
 
 describe('runAllConnectors and the user rules', () => {
-  it('with no copy of the rules: balances refresh, nothing is re-filed', async () => {
+  it('with no copy of the rules: brokerages refresh, the bank pair waits, nothing is re-filed', async () => {
     h.loadMerchantRules.mockResolvedValueOnce(false)
     await syncAllConnectors({ force: true })
-    expect(actions()).toContain('simplefin:sync')
+    // Both bank calls wait (B26), so the floor is not spent on balances alone.
+    expect(actions()).not.toContain('simplefin:sync')
     expect(actions()).toContain('snaptrade:sync')
     expect(actions()).not.toContain('simplefin:transactions')
     expect(await orphanCategory()).toBeNull()

@@ -11,8 +11,13 @@ interface Props {
   categories: Category[] | undefined
 }
 
-/** The name a freshly added category starts with; focusing it selects it, so typing replaces it. */
+/** The name a freshly added category starts with ('New category 2' when that
+ *  one is taken); focusing it selects it, so typing replaces it. */
 const NEW_NAME = 'New category'
+const NEW_NAME_RE = /^New category( \d+)?$/
+
+/** Name+kind identity, as the sync compares it: case and outer spaces ignored. */
+const nameKey = (name: string) => name.trim().toLowerCase()
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -37,12 +42,22 @@ function fallbackName(categories: Category[], category: Category): string | null
   return f ? f.name : null
 }
 
-/** Adds a new, unbudgeted category at the end of the order and returns its id. */
+/**
+ * Adds a new, unbudgeted category at the end of the order and returns its id.
+ * It takes the first free 'New category' name, read from the store (not the
+ * list on screen, which can lag a write): two live rows of one name and kind
+ * are merged by the next sync.
+ */
 async function addCategory(categories: Category[], kind: TxType): Promise<number> {
   const now = Date.now()
   const maxOrder = categories.reduce((m, c) => Math.max(m, c.sortOrder), -1)
+  const taken = new Set(
+    (await db.categories.filter((c) => !c.deleted && c.kind === kind).toArray()).map((c) => nameKey(c.name)),
+  )
+  let name = NEW_NAME
+  for (let n = 2; taken.has(nameKey(name)); n++) name = `${NEW_NAME} ${n}`
   return db.categories.add({
-    name: NEW_NAME,
+    name,
     icon: kind === 'expense' ? 'tag' : 'plus-circle',
     color: '#9a9aa2',
     kind,
@@ -57,6 +72,9 @@ export const Categories = memo(function Categories({ categories }: Props) {
   const [openId, setOpenId] = useState<number | null>(null)
   // The row just added: brought to the middle of the pane once it renders.
   const [freshId, setFreshId] = useState<number | null>(null)
+  // One add at a time: a quick second tap while the first is being written
+  // would add a second row of the same name.
+  const adding = useRef(false)
 
   if (!categories) return <Skeleton variant="list" />
   const all = categories
@@ -67,9 +85,15 @@ export const Categories = memo(function Categories({ categories }: Props) {
   const totalLimit = expense.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
 
   async function add(kind: TxType) {
-    const id = await addCategory(all, kind)
-    setOpenId(id)
-    setFreshId(id)
+    if (adding.current) return
+    adding.current = true
+    try {
+      const id = await addCategory(all, kind)
+      setOpenId(id)
+      setFreshId(id)
+    } finally {
+      adding.current = false
+    }
   }
 
   const list = (cats: Category[], kind: TxType) => (
@@ -81,6 +105,7 @@ export const Categories = memo(function Categories({ categories }: Props) {
           showLimit={kind === 'expense'}
           open={openId === c.id}
           fresh={freshId === c.id}
+          siblings={all}
           movesTo={fallbackName(all, c)}
           onToggle={() => setOpenId((o) => (o === c.id ? null : c.id!))}
           onDeleted={() => setOpenId(null)}
@@ -151,13 +176,15 @@ interface RowProps {
   open: boolean
   /** Just added: bring it into view. */
   fresh: boolean
+  /** Every live category (a rename may not take another one's name). */
+  siblings: Category[]
   /** Where this category's transactions go if it is deleted (null = uncategorized). */
   movesTo: string | null
   onToggle: () => void
   onDeleted: () => void
 }
 
-function CategoryRow({ category, showLimit, open, fresh, movesTo, onToggle, onDeleted }: RowProps) {
+function CategoryRow({ category, showLimit, open, fresh, siblings, movesTo, onToggle, onDeleted }: RowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const editId = useId()
   // Drafts live on the row so the summary previews a name while it is typed.
@@ -203,6 +230,7 @@ function CategoryRow({ category, showLimit, open, fresh, movesTo, onToggle, onDe
           showLimit={showLimit}
           name={name}
           limit={limit}
+          siblings={siblings}
           movesTo={movesTo}
           onDeleted={onDeleted}
         />
@@ -217,6 +245,7 @@ function CategoryEdit({
   showLimit,
   name,
   limit,
+  siblings,
   movesTo,
   onDeleted,
 }: {
@@ -225,11 +254,14 @@ function CategoryEdit({
   showLimit: boolean
   name: FieldDraft
   limit: FieldDraft
+  siblings: Category[]
   movesTo: string | null
   onDeleted: () => void
 }) {
   // The entrance plays when the editor opens, never again when the pane is re-shown.
   const [entering, setEntering] = useState(true)
+  // Why the last edit was not saved (a taken name, a budget that is not a number).
+  const [note, setNote] = useState<string | null>(null)
 
   async function patch(fields: Partial<Category>, field?: FieldDraft) {
     if (category.id == null) return
@@ -244,18 +276,40 @@ function CategoryEdit({
   }
 
   function saveName() {
+    setNote(null)
     // Never save a blank name (the stored one shows again), and write nothing
     // when the name is unchanged.
     const trimmed = name.value.trim()
     if (!trimmed || trimmed === category.name) return name.end(null)
+    // Never a second live category of this name and kind (case and spaces
+    // ignored, as the sync compares them): the sync would merge the two and
+    // drop one of them with its budget. A change of case on this row is fine.
+    const clash = siblings.find(
+      (c) => !c.deleted && c.kind === category.kind && c.id !== category.id && nameKey(c.name) === nameKey(trimmed),
+    )
+    if (clash) {
+      setNote(`You already have ${clash.name.trim()}.`)
+      return name.end(null)
+    }
     name.end(trimmed)
     void patch({ name: trimmed }, name)
   }
 
   function saveLimit() {
-    const n = Number(limit.value.replace(/,/g, '').trim())
-    // Not a number: revert to the stored budget rather than saving 0.
-    if (!Number.isFinite(n)) return limit.end(null)
+    setNote(null)
+    const typed = limit.value.trim()
+    // An empty field clears the budget. Otherwise the '$', thousands commas and
+    // spaces people type around a figure are dropped, and anything else that is
+    // not a number reverts to the stored budget (never 0) and says so.
+    const n = typed === '' ? 0 : Number(typed.replace(/[$,\s]/g, '') || NaN)
+    if (!Number.isFinite(n)) {
+      setNote(
+        category.monthlyBudget > 0
+          ? `Not a number. The budget stays ${money(category.monthlyBudget, { trim: true })}.`
+          : 'Not a number. No budget is set.',
+      )
+      return limit.end(null)
+    }
     const next = Math.max(0, n)
     if (next === category.monthlyBudget) return limit.end(null)
     limit.end(String(next || ''))
@@ -283,7 +337,7 @@ function CategoryEdit({
             autoComplete="off"
             onFocus={(e) => {
               name.begin()
-              if (category.name === NEW_NAME) {
+              if (NEW_NAME_RE.test(category.name)) {
                 const el = e.currentTarget
                 el.select()
                 // iOS can drop a selection made during the focusing tap.
@@ -319,6 +373,13 @@ function CategoryEdit({
           </label>
         )}
       </div>
+
+      {note && (
+        <div className="limit-warn is-over" role="alert">
+          <Icon name="alert" size={16} />
+          <span>{note}</span>
+        </div>
+      )}
 
       <div>
         <span className="field-sub">Icon</span>

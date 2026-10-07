@@ -61,7 +61,7 @@ describe('loadMerchantRules', () => {
     }
     await expect(loadMerchantRules()).resolves.toBe(true)
     expect(h.client.from).toHaveBeenCalledWith('merchant_rules')
-    expect(h.query.select).toHaveBeenCalledWith('pattern,flags,category,kind,priority')
+    expect(h.query.select).toHaveBeenCalledWith('id,pattern,flags,category,kind,priority,updated_at')
     expect(h.query.eq).toHaveBeenCalledWith('user_id', 'user-1')
     expect(h.query.order).toHaveBeenCalledWith('priority')
     expect(userRulesReady()).toBe(true)
@@ -70,6 +70,20 @@ describe('loadMerchantRules', () => {
     expect(guessCategoryName('ZORBLATT', 'expense')).toBe('Dining')
     // And a built-in between them (Transport, 40) is ordered correctly too.
     expect(guessCategoryName('ZORBLATT PARKING', 'expense')).toBe('Dining')
+  })
+
+  it('B10: rules that tie are tried newest first, whatever order the server sent them in', async () => {
+    const older = { id: 1, pattern: 'zorblatt', flags: 'i', category: 'Shopping', kind: 'expense', priority: 4, updated_at: '2026-09-01T00:00:00Z' }
+    const newer = { id: 2, pattern: 'zorblatt prime', flags: 'i', category: 'Fun', kind: 'expense', priority: 4, updated_at: '2026-09-20T00:00:00Z' }
+    for (const data of [[older, newer], [newer, older]]) {
+      h.state.result = { data, error: null }
+      await expect(loadMerchantRules()).resolves.toBe(true)
+      expect(guessCategoryName('ZORBLATT PRIME', 'expense')).toBe('Fun')
+    }
+    // Retargeting the older rule makes it the newest: it wins from then on.
+    h.state.result = { data: [{ ...older, updated_at: '2026-09-25T00:00:00Z' }, newer], error: null }
+    await loadMerchantRules()
+    expect(guessCategoryName('ZORBLATT PRIME', 'expense')).toBe('Shopping')
   })
 
   it('offline: asks nothing, returns false and keeps the cached rules', async () => {

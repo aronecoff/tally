@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { money, moneyParts, pct } from './format'
+import { money, moneyParts, pct, toCents } from './format'
 
 describe('money', () => {
   it('formats exact amounts with cents and thousands separators', () => {
@@ -9,6 +9,15 @@ describe('money', () => {
 
   it('uses a true minus sign for negatives', () => {
     expect(money(-42.1)).toBe('−$42.10')
+  })
+
+  it('a float residue that rounds to zero carries no minus', () => {
+    expect(money(10.1 + 20.2 - 30.3)).toBe('$0.00')
+    expect(money(-0.004)).toBe('$0.00')
+    expect(money(-0.4, { approx: true })).toBe('$0')
+    expect(money(-0.005)).toBe('−$0.01')
+    expect(toCents(236.82000000000005)).toBe(23682)
+    expect(toCents(-30.3)).toBe(-3030)
   })
 
   it('forces a leading sign when asked', () => {

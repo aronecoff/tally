@@ -73,6 +73,18 @@
     letter-spacing: inherit;
   }
 
+  /* Home's heading: the brand on the phone, 'Home' on the desktop (the
+     sidebar carries the brand there). */
+  .head-brand-mark {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+  }
+
+  .head-brand-desk {
+    display: none;
+  }
+
   .head-glyph {
     flex: none;
     color: var(--text-1);
@@ -189,8 +201,10 @@
     margin-left: -12px;
   }
 
+  /* flex: none: a crowded header must never squeeze an arrow under 44pt. */
   .ms-step {
     display: grid;
+    flex: none;
     place-items: center;
     width: 44px;
     height: 44px;
@@ -202,13 +216,23 @@
     transition: color var(--dur-1) var(--ease-out), opacity var(--dur-1) var(--ease-out);
   }
 
-  .ms-step:active:not(:disabled) {
+  .ms-step:active:not([aria-disabled='true']) {
     color: var(--text-1);
   }
 
-  .ms-step:disabled {
-    opacity: 0.25;
+  /* Next at the current month: aria-disabled, not disabled, so keyboard focus
+     stays on it. The icon dims, not the button, so its focus ring stays full
+     strength. */
+  .ms-step > * {
+    transition: opacity var(--dur-1) var(--ease-out);
+  }
+
+  .ms-step[aria-disabled='true'] {
     cursor: default;
+  }
+
+  .ms-step[aria-disabled='true'] > * {
+    opacity: 0.25;
   }
 
   .ms-label {
@@ -251,9 +275,10 @@
     inset: 0;
     overflow-x: hidden;
     overflow-y: auto;
-    /* contain: no page bounce or pull-to-refresh; pan-y: smooth vertical scroll. */
+    /* contain: no page bounce or pull-to-refresh. manipulation: vertical
+       scroll and pinch-zoom; double-tap zoom stays off, so taps are instant. */
     overscroll-behavior: contain;
-    touch-action: pan-y;
+    touch-action: manipulation;
     padding: var(--s-4) var(--gutter) calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s-6));
     scroll-padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 12px);
   }
@@ -459,16 +484,40 @@
     }
   }
 
-  @media (max-width: 359px) {
+  /* 'This month' needs 285px from the left edge; beside three header buttons
+     (Tell Tally, Add, Settings: 134px) that fits only from 419px. Tapping the
+     month label goes back to this month anyway. Change 418 with the buttons. */
+  @media (max-width: 418px) {
     .ms-today {
       display: none;
+    }
+  }
+
+  /* 320: the month label gives up a little width so the 44pt arrows fit, and
+     the Categories title flows beside '‹ Budget' instead of centring under
+     the Tell Tally button. */
+  @media (max-width: 359px) {
+    .ms-label {
+      min-width: 5.5em;
+    }
+    .head-center {
+      position: static;
+      flex: 1 1 auto;
+      min-width: 0;
+      height: auto;
+      transform: none;
+      display: block;
+      line-height: var(--head-h);
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   }
 
   /* Hover: pointer devices only (no sticky iOS hover). */
   @media (hover: hover) and (pointer: fine) {
     .head-btn:hover,
-    .ms-step:hover:not(:disabled) {
+    .ms-step:hover:not([aria-disabled='true']) {
       color: var(--text-1);
     }
     .ms-label:hover,
@@ -491,19 +540,27 @@
   @media (min-width: 920px) {
     .app {
       display: grid;
-      grid-template-columns: 232px minmax(0, 1fr);
+      /* The sidebar grows by a landscape phone's left inset rather than
+         squeezing its labels onto two lines. */
+      grid-template-columns: calc(216px + max(16px, env(safe-area-inset-left))) minmax(0, 1fr);
       max-width: 1180px;
       height: 100vh;
+      height: 100dvh; /* 100vh alone hides the bottom behind Safari's toolbar */
       gap: 0;
       border-left: var(--hairline-w) solid var(--hairline);
       border-right: var(--hairline-w) solid var(--hairline);
       box-shadow: none;
     }
+    /* Its content is about 520px tall: a shorter window (a phone in landscape)
+       scrolls it, so Tell Tally and Settings stay reachable. */
     .sidebar {
       display: flex;
       flex-direction: column;
-      height: 100vh;
-      padding: 22px 16px;
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 22px 16px max(22px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       gap: 8px;
       background: var(--bg);
       border: 0;
@@ -572,9 +629,15 @@
       right: 14px;
       margin-top: -3px;
     }
+    /* The header starts where the screen below does: the pane's 30px, and on a
+       single-column screen (a centred 660px column) at that column's edge. Its
+       left side borders the sidebar, so only the right takes the inset. */
     .app-head {
       height: 56px;
-      padding: 0 28px;
+      padding: 0 max(30px, env(safe-area-inset-right)) 0 30px;
+    }
+    .main:has(> .app-body > .pane:not([hidden]) > :is(.activity, .cats, .accounts, .analysis)) > .app-head {
+      padding-left: max(30px, calc((100% - 660px) / 2));
     }
     .head-right,
     .head-back,
@@ -586,8 +649,22 @@
       height: auto;
       transform: none;
     }
+    /* Home: the sidebar already carries the brand; the header names the screen. */
+    .head-brand-mark {
+      display: none;
+    }
+    .head-brand-desk {
+      display: inline;
+    }
     .pane {
-      padding: 24px 30px 40px;
+      padding: 24px max(30px, env(safe-area-inset-right)) max(40px, calc(env(safe-area-inset-bottom) + 16px)) 30px;
+    }
+  }
+
+  @media (min-width: 1040px) {
+    /* Accounts and the full Insights go two-column here: back to the pane edge. */
+    .main:has(> .app-body > .pane:not([hidden]) > :is(.accounts, .analysis.an-grid)) > .app-head {
+      padding-left: 30px;
     }
   }
 }

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, type Transaction } from './db/db'
+import { db, type Category, type Transaction } from './db/db'
 import { supabase } from './db/supabase'
 import { seedIfEmpty } from './db/seed'
 import { currentMonth } from './lib/dates'
+import { useToday } from './lib/useToday'
 import { useTheme } from './lib/useTheme'
 import { play } from './lib/motion'
 import { Home } from './components/Home'
@@ -19,7 +20,7 @@ import { CommandSheet } from './components/CommandSheet'
 import { Icon } from './components/Icon'
 import { MonthSwitch } from './components/MonthSwitch'
 import { Skeleton, type SkeletonVariant } from './components/Skeleton'
-import { useOpenSheets } from './components/Sheet'
+import { getStack, useOpenSheets } from './components/sheetStack'
 import { initSync, subscribeSync, type SyncSnapshot } from './sync/sync'
 import { syncAllConnectors, subscribeBankHealth, type BankHealth } from './lib/banks'
 
@@ -65,12 +66,14 @@ function tabFromHash(): Tab | null {
   return TAB_IDS.find((t) => SCREEN[t] === h) ?? null
 }
 
-/** The viewed month survives a reload (per tab session), capped at this month. */
+/** A past month chosen on purpose survives a reload (per tab session). The
+ *  current month is never stored, so a reload after the month turns (an
+ *  update, or iOS reloading the web view overnight) opens the new month. */
 function readMonth(): string {
   const cur = currentMonth()
   try {
     const m = sessionStorage.getItem(MONTH_KEY)
-    if (m && /^\d{4}-\d{2}$/.test(m) && m <= cur) return m
+    if (m && /^\d{4}-\d{2}$/.test(m) && m < cur) return m
   } catch {
     /* storage blocked: start on this month */
   }
@@ -100,6 +103,9 @@ function TallyGlyph() {
   )
 }
 
+/** Stable while categories load, so the memoised panes do not re-render. */
+const NO_CATEGORIES: Category[] = []
+
 interface SortQueue {
   items: Transaction[]
   i: number
@@ -107,6 +113,14 @@ interface SortQueue {
 
 export default function App() {
   const [month, setMonth] = useState(readMonth)
+  // Left open overnight into a new month: a screen that was following the
+  // current month moves to the new one; a past month chosen on purpose stays.
+  const cur = useToday().slice(0, 7)
+  const [seenCur, setSeenCur] = useState(cur)
+  if (seenCur !== cur) {
+    setSeenCur(cur)
+    if (month === seenCur) setMonth(cur)
+  }
   const [tab, setTab] = useState<Tab>(() => tabFromHash() ?? 'home')
   const [visited, setVisited] = useState<ReadonlySet<Tab>>(() => new Set([tabFromHash() ?? 'home']))
   const [editTxn, setEditTxn] = useState<Transaction | null>(null)
@@ -139,8 +153,8 @@ export default function App() {
     seedIfEmpty().finally(() => setReady(true))
     initSync()
     // Real-time connector sync: pull balances + transactions on boot, whenever the
-    // window regains focus, and every few minutes while open. Device sync (Supabase
-    // ↔ Dexie) runs its own 45s/focus/online loop inside initSync().
+    // window regains focus, and every few minutes while open. Each run syncs the
+    // device (Supabase ↔ Dexie) first; initSync() adds a 45s/online loop of its own.
     const pull = () => void syncAllConnectors().catch(() => {})
     const boot = setTimeout(pull, 1800)
     // SimpleFIN refreshes once every 24h; lib/banks throttles the actual bank
@@ -172,14 +186,15 @@ export default function App() {
     }
   }, [])
 
-  // The viewed month survives a reload.
+  // A past month survives a reload; the current month is not stored (readMonth).
   useEffect(() => {
     try {
-      sessionStorage.setItem(MONTH_KEY, month)
+      if (month === cur) sessionStorage.removeItem(MONTH_KEY)
+      else sessionStorage.setItem(MONTH_KEY, month)
     } catch {
       /* storage blocked */
     }
-  }, [month])
+  }, [month, cur])
 
   // ---- Navigation --------------------------------------------------------
   /** Show a tab: remember the old pane's scroll, update the hash, mount it once. */
@@ -236,11 +251,10 @@ export default function App() {
     if (tabRef.current !== 'categories') show('categories', true)
   }, [show])
 
-  /** The Categories back control: its label ('Budget') is always true. */
-  const back = useCallback(() => {
-    if (history.state?.tally === 'cat') history.back()
-    else go('dashboard')
-  }, [go])
+  /** The Categories back control: its label ('Budget') is always true. go()
+   *  pops a pushed Categories entry and lands on Budget whatever the entry
+   *  behind it now says (a tab change rewrites it; Forward comes back here). */
+  const back = useCallback(() => go('dashboard'), [go])
 
   // Restore the shown pane's own scroll position and the header hairline.
   useLayoutEffect(() => {
@@ -260,6 +274,11 @@ export default function App() {
     const from = shownMonth.current
     shownMonth.current = month
     if (from === month) return
+    // A new month is new content: every month screen opens at its top.
+    for (const t of MONTH_TABS) scrollMem.current[t] = 0
+    const shown = panes.current[tabRef.current]
+    if (shown && MONTH_TABS.has(tabRef.current)) shown.scrollTop = 0
+    headRef.current?.classList.remove('scrolled')
     const d = month > from ? 1 : -1
     play(
       panes.current[tabRef.current],
@@ -310,8 +329,25 @@ export default function App() {
     setEditTxn(null)
     setAdding(false)
   }, [])
-  const goBudget = useCallback(() => go('dashboard'), [go])
-  const goInsights = useCallback(() => go('insights'), [go])
+  // A new row shows its own month (the + is global, and the month a screen
+  // shows can be a past one). A month the switcher cannot reach yet (a future
+  // date) leaves the view as it is.
+  const showMonthOf = useCallback((date: string) => {
+    const m = date.slice(0, 7)
+    if (m <= currentMonth()) setMonth(m)
+  }, [])
+  // Home is always the current month, so what it opens on Budget is too
+  // (the tab bar keeps the month Budget was left on).
+  const goBudget = useCallback(() => {
+    setMonth(currentMonth())
+    go('dashboard')
+  }, [go])
+  // 'Refresh balances' lands on Insights only if the user is still on Accounts
+  // with nothing open over it when the refresh resolves (read live then, not
+  // from the tap): otherwise the pane switched behind their back.
+  const onRefreshed = useCallback(() => {
+    if (tabRef.current === 'accounts' && getStack().length === 0) go('insights')
+  }, [go])
   const goCategories = useCallback(() => go('categories'), [go])
   const openBank = useCallback(() => {
     setBankPrompt(true)
@@ -321,6 +357,7 @@ export default function App() {
   const openCategory = useCallback(
     (key: string) => {
       setBudgetFocus((f) => ({ key, n: (f?.n ?? 0) + 1 }))
+      setMonth(currentMonth())
       go('dashboard')
     },
     [go],
@@ -356,15 +393,6 @@ export default function App() {
     if (!import.meta.env.DEV) return
     ;(window as unknown as { __tally?: object }).__tally = { sortUncategorized }
   }, [sortUncategorized])
-
-  // Reconnect / Bank connections: once Accounts is showing, ask it for the bank
-  // sheet. Accounts registers its listener in its own effect, which runs before
-  // this one when it mounts in the same commit.
-  useEffect(() => {
-    if (!bankPrompt || tab !== 'accounts' || !loaded) return
-    window.dispatchEvent(new Event('tally:open-bank-connect'))
-    setBankPrompt(false)
-  }, [bankPrompt, tab, loaded])
 
   // 'n' opens the add sheet and '/' opens Tell Tally, when nothing is being
   // typed and no sheet is open.
@@ -434,7 +462,11 @@ export default function App() {
   const headLeft =
     tab === 'home' ? (
       <h1 className="head-brand">
-        <TallyGlyph /> Tally
+        {/* The brand on the phone; 'Home' on the desktop, where the sidebar carries the brand. */}
+        <span className="head-brand-mark">
+          <TallyGlyph /> Tally
+        </span>
+        <span className="head-brand-desk">Home</span>
       </h1>
     ) : MONTH_TABS.has(tab) ? (
       <MonthSwitch month={month} setMonth={setMonth} />
@@ -450,7 +482,7 @@ export default function App() {
       </>
     )
 
-  const cats = categories ?? []
+  const cats = categories ?? NO_CATEGORIES
   const screens = useMemo(
     () => ({
       home: (active: boolean) => (
@@ -483,7 +515,7 @@ export default function App() {
           active={active}
           openBankConnect={bankPrompt}
           onBankConnectOpened={clearBankPrompt}
-          onSynced={goInsights}
+          onSynced={onRefreshed}
         />
       ),
       transactions: (active: boolean) => (
@@ -492,7 +524,7 @@ export default function App() {
       categories: () => <Categories categories={cats} />,
     }),
     [cats, month, goBudget, sortUncategorized, openCategory, pushCategories, budgetFocus, consumeFocus, bankPrompt,
-      clearBankPrompt, goInsights, openAdd],
+      clearBankPrompt, onRefreshed, openAdd],
   )
 
   return (
@@ -573,7 +605,10 @@ export default function App() {
                 hidden={t !== tab}
                 ref={paneRefs[t]}
               >
-                {screens[t](t === tab)}
+                {/* A month screen suspends while a new month loads: under a
+                    MonthSwitch transition the old month stays up meanwhile;
+                    any other month change shows the skeleton. */}
+                <Suspense fallback={<Skeleton variant={SKELETON[t]} />}>{screens[t](t === tab)}</Suspense>
               </section>
             ))
           )}
@@ -595,7 +630,7 @@ export default function App() {
           onClose={closeQueue}
         />
       ) : loaded && (editTxn || adding) ? (
-        <TransactionSheet key="edit" categories={cats} initial={editTxn} onClose={closeTxn} />
+        <TransactionSheet key="edit" categories={cats} initial={editTxn} onClose={closeTxn} onAdded={showMonthOf} />
       ) : null}
 
       {loaded && commandOpen && <CommandSheet categories={cats} onClose={closeCommand} />}

@@ -60,6 +60,9 @@ function Live() {
 const row = (name: string) => screen.getByText(name, { selector: '.cat-name' }).closest('.cat-row') as HTMLElement
 const open = (name: string) => fireEvent.click(within(row(name)).getByRole('button', { expanded: false }))
 const deleteButton = (name: string) => within(row(name)).getByRole('button', { name: /delete/i })
+/** A short real wait, only before checking that nothing was written. A write
+ *  that should happen is awaited on its value: under a loaded full run a fixed
+ *  wait could run out before the write landed. */
 const pause = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
 
 let confirmSpy: ReturnType<typeof vi.spyOn>
@@ -109,6 +112,15 @@ describe('Categories: loading and rows', () => {
 })
 
 describe('Categories: delete', () => {
+  // The double-tap window (useArmed) reads performance.now(); the taps move it
+  // by hand. With the real clock, the pauses between taps ran past the 350 ms
+  // window under a loaded full run, and the 'inside the window' tap confirmed.
+  let now = 10_000
+  beforeEach(() => {
+    now = 10_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+  })
+
   it('needs two taps, never calls window.confirm, and re-homes to Other exactly as before', async () => {
     render(<Live />)
     await screen.findByText('Dining')
@@ -122,12 +134,14 @@ describe('Categories: delete', () => {
     expect((await db.categories.get(2))?.deleted).toBeFalsy()
     expect((await db.transactions.bulkGet([101, 102])).map((t) => t?.categoryId)).toEqual([2, 2])
 
-    // A second tap inside the double-tap window is not a confirmation.
+    // A second tap inside the double-tap window is not a confirmation: still armed.
+    now += 150
     fireEvent.click(deleteButton('Dining'))
+    expect(deleteButton('Dining').textContent).toBe('Tap again to delete')
     await pause(50)
     expect((await db.categories.get(2))?.deleted).toBeFalsy()
 
-    await pause(400)
+    now += 400
     fireEvent.click(deleteButton('Dining'))
     await waitFor(async () => expect((await db.categories.get(2))?.deleted).toBe(true))
 
@@ -156,7 +170,7 @@ describe('Categories: delete', () => {
     open('Other')
     fireEvent.click(deleteButton('Other'))
     expect(within(row('Other')).getByText('Transactions become uncategorized')).toBeTruthy()
-    await pause(400)
+    now += 400
     fireEvent.click(deleteButton('Other'))
     await waitFor(async () => expect((await db.categories.get(3))?.deleted).toBe(true))
     expect((await db.transactions.get(104))?.categoryId).toBeNull()
@@ -246,26 +260,31 @@ describe('Categories: editor', () => {
     const limit = within(row('Dining')).getByRole('textbox', { name: 'Monthly budget' }) as HTMLInputElement
     expect(limit.getAttribute('inputmode')).toBe('decimal')
     expect(limit.getAttribute('placeholder')).toBe('No budget')
-    const enter = async (v: string) => {
+    const enter = (v: string) => {
       fireEvent.focus(limit)
       fireEvent.change(limit, { target: { value: v } })
       fireEvent.blur(limit)
-      await pause(30)
-      return db.categories.get(2)
     }
+    const stored = () => db.categories.get(2)
+    /** A save is a write: awaited on the stored budget. */
+    const saved = (n: number) => waitFor(async () => expect((await stored())?.monthlyBudget).toBe(n))
 
-    let c = await enter('abc')
+    enter('abc')
+    await pause(30)
+    const c = await stored()
     expect([c?.monthlyBudget, c?.updatedAt, limit.value]).toEqual([800, T0, '800'])
-    c = await enter('800')
-    expect(c?.updatedAt).toBe(T0) // unchanged: no write
-    c = await enter('650.5')
-    expect(c?.monthlyBudget).toBe(650.5)
-    c = await enter('-20')
-    expect(c?.monthlyBudget).toBe(0) // max(0, n), as before
-    c = await enter('')
-    expect(c?.monthlyBudget).toBe(0)
-    c = await enter('1,200')
-    expect(c?.monthlyBudget).toBe(1200)
+    enter('800')
+    await pause(30)
+    expect((await stored())?.updatedAt).toBe(T0) // unchanged: no write
+    enter('650.5')
+    await saved(650.5)
+    enter('-20')
+    await saved(0) // max(0, n), as before
+    enter('')
+    await pause(30)
+    expect((await stored())?.monthlyBudget).toBe(0)
+    enter('1,200')
+    await saved(1200)
   })
 
   it('adds a category with the same fields as before and opens it', async () => {

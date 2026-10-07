@@ -69,7 +69,35 @@ const pick = (v) => (v == null || (typeof v === "string" && v.trim() === "")) ? 
 // bare "credit") are deliberately excluded — only unambiguous liability names
 // count. Balance sign is the LAST resort to flag an otherwise-unlabeled,
 // genuinely-owed account as credit.
+// KEEP IN STEP with tierFromName in src/lib/bankRules.ts (the app re-reads the
+// name, and remembers a card once seen, so a $0 card never reads as cash).
+// - Plan numbers are word-bounded: a 4-digit mask like "(4013)" or "(2457)" is
+//   not a 401(k) or a 457 plan.
+// - HSA is a benefit account: its card spending is real spending.
+// - Cash names win over investment words ("Schwab Investor Checking",
+//   "Individual Checking"), and "CKG"/"CHK"/"DDA" are checking.
+// - Card products named without "visa"/"amex" (Gold Card, Sapphire, Freedom).
 function inferTier(name, num) {
+  const n = String(name ?? "").toLowerCase();
+  if (/\b(?:401|403|457)(?:\s*\(?[kb]\)?|\b)|\bira\b|roth|retire|pension|rrsp|\bsep\b/.test(n)) return "retirement";
+  if (/\bhsa\b|health ?savings/.test(n)) return "benefit";
+  if (/check|chequing|saving|money ?market|\bcd\b|certificate|deposit|debit|cash management|\bhysa\b|\bckg\b|\bchk\b|\bdda\b/.test(n)) return "cash";
+  if (/brokerage|invest|securities|\bindividual\b|margin/.test(n)) return "brokerage";
+  if (/credit card|line of credit|\bloc\b|\bloan\b|mortgage|\bvisa\b|master ?card|\bamex\b|american express|\bsapphire\b|\bfreedom\b|gold card|platinum card/.test(n)) return "credit";
+  if (Number.isFinite(num) && num < 0) return "credit";
+  return "cash";
+}
+
+// FROZEN copy of inferTier as it shipped before Oct 2026. It only decides the
+// owed-clamp below, so redeploying with the wider name rules sends every
+// account the SAME balance number as before and moves no net worth (the app's
+// net worth depends on that number alone; the tier only picks the section).
+// Without it, a "Gold Card" or "Sapphire" at a positive balance, which the old
+// rules read as cash (+X, money in your favour), would be clamped to owed (-X).
+// Whether a positive card balance means owed or in your favour is unsettled
+// (SimpleFIN does not define the sign): check a card with a known balance
+// through the "raw" action, then replace this with one rule for every card.
+function legacyInferTier(name, num) {
   const n = String(name ?? "").toLowerCase();
   if (/401|403|457|\bira\b|roth|retire|pension|rrsp|\bsep\b/.test(n)) return "retirement";
   if (/brokerage|invest|securities|\bindividual\b|margin|\bhsa\b/.test(n)) return "brokerage";
@@ -85,8 +113,10 @@ function normalize(a) {
   const num = balRaw == null ? NaN : Number(balRaw);
   const tier = inferTier(a?.name, num);
   // Tally stores assets positive, credit as positive amount OWED (client flips).
-  // SimpleFIN credit balances may be signed either way, so clamp to owed.
-  const balance = Number.isNaN(num) ? null : (tier === "credit" ? -Math.abs(num) : num);
+  // SimpleFIN credit balances may be signed either way, so clamp to owed, but
+  // only where the pre-Oct-2026 rules did (legacyInferTier above).
+  const clamp = legacyInferTier(a?.name, num) === "credit";
+  const balance = Number.isNaN(num) ? null : (clamp ? -Math.abs(num) : num);
   return {
     sourceAccountId: `${org.domain || org.name || "sf"}:${a?.id}`,
     institution: org.name || org.domain || "Bank",
@@ -148,7 +178,9 @@ Deno.serve(async (req) => {
       if (!res.ok) return json({ ok: false, error: `simplefin /accounts -> ${res.status}` }, 502);
       const data = await res.json().catch(() => ({}));
       const accounts = (data?.accounts ?? []).map(normalize);
-      return json({ ok: true, accounts, errors: data?.errors ?? [] });
+      // errlist is protocol 2's structured form of errors; the app reads both
+      // and archives nothing while either reports a problem.
+      return json({ ok: true, accounts, errors: data?.errors ?? [], errlist: data?.errlist ?? [] });
     }
 
     if (action === "transactions") {
@@ -162,17 +194,29 @@ Deno.serve(async (req) => {
       if (!res.ok) return json({ ok: false, error: `simplefin /accounts -> ${res.status}` }, 502);
       const data = await res.json().catch(() => ({}));
       const transactions = [];
+      // Every account that answered, rows or not: the app retires a dropped
+      // pending hold on a card that answered with no rows at all.
+      const accounts = [];
       for (const a of data?.accounts ?? []) {
         const balNum = Number(pick(a?.balance) ?? pick(a?.["available-balance"]));
         const tier = inferTier(a?.name, balNum);
         const org = a?.org ?? {};
         const account = `${org.name || org.domain || "Bank"} ${a?.name || ""}`.trim();
+        // The same key the `sync` action gives the account, so the app can read
+        // each row by the account's remembered tier, and the account's own name
+        // for when it has none stored yet (`account` also carries the institution).
+        const sourceAccountId = `${org.domain || org.name || "sf"}:${a?.id}`;
+        accounts.push(account);
         for (const t of a?.transactions ?? []) {
           transactions.push({
             sourceTxId: `${org.domain || "sf"}:${a?.id}:${t?.id}`,
+            sourceAccountId,
+            accountName: a?.name || "",
             account,
             tier,
-            posted: t?.transacted_at ?? t?.posted,
+            // A pending row may carry posted 0 (allowed by SimpleFIN): that is
+            // no date, not 1970. `||` skips it; the app dates such a row today.
+            posted: t?.transacted_at || t?.posted || null,
             pending: !!t?.pending,
             amount: Number(t?.amount),
             description: t?.description || t?.payee || "",
@@ -183,7 +227,7 @@ Deno.serve(async (req) => {
         }
       }
       console.log(`[tx] accounts=${(data?.accounts ?? []).length} txns=${transactions.length}`);
-      return json({ ok: true, transactions, errors: data?.errors ?? [] });
+      return json({ ok: true, transactions, accounts, errors: data?.errors ?? [], errlist: data?.errlist ?? [] });
     }
 
     return json({ ok: false, error: "unknown action" }, 400);

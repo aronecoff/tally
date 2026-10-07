@@ -25,7 +25,7 @@ let STALE_TYPES: Set<String> = [
     WKWebsiteDataTypeFetchCache,
 ]
 
-class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, NSWindowDelegate {
     var window: NSWindow!
     var web: WKWebView!
     // Child windows opened via window.open() / target=_blank (e.g. the SnapTrade
@@ -155,6 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate {
         win.isReleasedWhenClosed = false
         win.center()
         win.contentView = popup
+        win.delegate = self // so a title-bar close also releases the popup
         win.makeKeyAndOrderFront(nil)
         popups[ObjectIdentifier(popup)] = win
 
@@ -174,13 +175,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate {
         popups.removeValue(forKey: key)
     }
 
+    // A popup closed from its title bar never reaches webViewDidClose. Drop our
+    // reference so the WKWebView deallocates; WebKit then closes the page (its
+    // timers stop and the opener sees w.closed == true). stopLoading() alone
+    // does NOT stop a loaded page. Only popups have this delegate.
+    func windowWillClose(_ notification: Notification) {
+        guard let win = notification.object as? NSWindow,
+              let key = popups.first(where: { $0.value === win })?.key else { return }
+        (win.contentView as? WKWebView)?.stopLoading()
+        popups.removeValue(forKey: key)
+    }
+
     // WKWebView shows nothing for alert()/confirm() unless the host implements
     // these; confirm() then returns false and destructive actions silently do
     // nothing. The web UI confirms in-sheet now; this is the native backstop.
+    // The handlers are @MainActor to match the SDK (WK_SWIFT_UI_ACTOR): in
+    // Swift 6 mode a plain closure type no longer matches the protocol and
+    // WebKit stops calling these.
     func webView(_ webView: WKWebView,
                  runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo,
-                 completionHandler: @escaping () -> Void) {
+                 completionHandler: @escaping @MainActor () -> Void) {
         let alert = NSAlert()
         alert.messageText = message
         alert.addButton(withTitle: "OK")
@@ -191,7 +206,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView,
                  runJavaScriptConfirmPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo,
-                 completionHandler: @escaping (Bool) -> Void) {
+                 completionHandler: @escaping @MainActor (Bool) -> Void) {
         let alert = NSAlert()
         alert.messageText = message
         alert.addButton(withTitle: "OK")

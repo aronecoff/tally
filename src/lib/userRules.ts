@@ -22,13 +22,21 @@ export type UserRuleRow = {
   priority: number
 }
 
-export type UserRule = { match: RegExp; category: string; kind: RuleKind; priority: number }
+/** `pattern` is the stored text, so a rule can be found again on the server (Tell Tally's "forget"). */
+export type UserRule = { match: RegExp; pattern: string; category: string; kind: RuleKind; priority: number }
 
 const CACHE_KEY = 'tally:merchantRules:v1'
 
 let rows: UserRuleRow[] = []
 let rules: UserRule[] = []
 let ready = false
+/** Bumped on every clear (sign-out), so a load that started before cannot land after. */
+let epoch = 0
+
+/** Which sign-in the store belongs to; a load compares it before writing. */
+export function rulesEpoch(): number {
+  return epoch
+}
 
 /**
  * Only i, m, s and u survive. g and y make RegExp.test() stateful (lastIndex),
@@ -56,7 +64,7 @@ function compile(input: readonly UserRuleRow[]): UserRule[] {
     } catch {
       continue
     }
-    out.push({ match, category: r.category.trim(), kind, priority })
+    out.push({ match, pattern: r.pattern, category: r.category.trim(), kind, priority })
   }
   return out
 }
@@ -104,6 +112,7 @@ export function setUserRules(next: readonly UserRuleRow[]): void {
 
 /** Forget the rules (sign-out): built-in rules only, and not ready. */
 export function clearUserRules(): void {
+  epoch++
   rows = []
   rules = []
   ready = false

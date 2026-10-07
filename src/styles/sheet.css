@@ -145,7 +145,8 @@
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    touch-action: pan-y;
+    /* Scroll and pinch-zoom; double-tap zoom stays off, so taps are instant. */
+    touch-action: manipulation;
   }
 
   /* Body children keep their size; the body scrolls instead of squeezing them. */
@@ -404,6 +405,16 @@
       border: var(--hairline-w) solid var(--hairline);
       border-radius: 20px;
       animation: dialogIn var(--dur-3) var(--ease-out) backwards;
+    }
+    /* Keyboard up (iPad, a landscape phone): rest just above it and give the
+       space back from the top, so Preview, Apply and Add are never under it. */
+    .sheet-backdrop[data-kb] {
+      align-items: flex-end;
+      padding-top: var(--s-3);
+      padding-bottom: calc(var(--kb) + var(--s-3));
+    }
+    .sheet-backdrop[data-kb] .sheet {
+      max-height: min(calc(100dvh - var(--kb) - 2 * var(--s-3)), 820px);
     }
     .sheet.is-closing {
       animation: dialogOut var(--dur-2) var(--ease-in) forwards;

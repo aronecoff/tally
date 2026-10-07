@@ -7,7 +7,7 @@
  */
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TransactionList } from './TransactionList'
 import { db, type Category, type Transaction } from '../db/db'
 
@@ -145,17 +145,32 @@ describe('TransactionList', () => {
     // The month summary stays the month's, not the filter's.
     expect(container.querySelector('.txn-count')?.textContent).toBe('3 transactions · 1 pending')
 
-    rerender(view('2026-08'))
+    // A month change on a mounted list suspends until the new month's rows are
+    // in (never the old rows under the new month): an awaited act lets it retry.
+    await act(async () => rerender(view('2026-08')))
     await screen.findByText('August thing')
     const tabs8 = within(container.querySelector('.txn-filter') as HTMLElement).getAllByRole('tab')
     expect(tabs8[0].getAttribute('aria-selected')).toBe('true')
 
     // Coming back to the month it was picked in does not restore it either.
-    rerender(view('2026-09'))
+    await act(async () => rerender(view('2026-09')))
     await screen.findByText('PayPal Pay in 4')
     const tabs9 = within(container.querySelector('.txn-filter') as HTMLElement).getAllByRole('tab')
     expect(tabs9[0].getAttribute('aria-selected')).toBe('true')
     expect(container.textContent).toMatch(/American Express/)
+  })
+
+  it('B30: left open past midnight, Today reads Yesterday on resume', async () => {
+    vi.setSystemTime(new Date(2026, 8, 22, 23, 59, 0))
+    await seed([txn({ date: '2026-09-22', amount: 5, categoryId: 1, account: AMEX, note: 'Late snack' })])
+    const { container } = render(view())
+    await screen.findByText('Late snack')
+    expect(container.querySelector('.txn-day-head')?.textContent).toBe('Today')
+    vi.setSystemTime(new Date(2026, 8, 23, 0, 1, 0))
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(container.querySelector('.txn-day-head')?.textContent).toBe('Yesterday')
   })
 
   it('totals a day only when it has two or more expense rows', async () => {
@@ -206,4 +221,62 @@ describe('TransactionList', () => {
     rerender(view('2026-09', true))
     await waitFor(() => expect(container.textContent).toMatch(/Second/))
   })
+
+  it('rent paid early shows in the month it was paid, under the month it counts in', async () => {
+    vi.setSystemTime(new Date(2026, 8, 30, 12, 0, 0))
+    await seed([
+      txn({ date: '2026-09-01', amount: 2400, categoryId: 1, account: CHECKING, note: 'ACME PROPERTY MGMT' }),
+      txn({ date: '2026-09-15', amount: 42.1, categoryId: 1, account: AMEX, note: 'Corner Store' }),
+      txn({ date: '2026-10-01', amount: 2400, categoryId: 1, account: CHECKING, note: 'ACME PROPERTY MGMT' }),
+    ])
+    const { container } = render(view())
+    await screen.findByText('Corner Store')
+    await waitFor(() => expect(screen.getByText('Counts in October')).toBeTruthy())
+    const group = screen.getByText('Counts in October').closest('section') as HTMLElement
+    expect(within(group).getByText(/acme property/i)).toBeTruthy()
+    expect(group.querySelector('.txn-sub')?.textContent).toContain('Counts Oct 1')
+    // The month's own count and totals are September's alone.
+    expect(container.querySelector('.txn-count')?.textContent).toBe('2 transactions')
+    // A past month shows no such group.
+    cleanup()
+    render(view('2026-08'))
+    await screen.findByText('No transactions in August 2026.')
+    expect(screen.queryByText('Counts in October')).toBeNull()
+  })
+
+  it('B11: rows removed by hand or by Tell Tally are listed under Removed, and a tap brings one back', async () => {
+    await seed([
+      txn({ date: '2026-09-17', amount: 30, categoryId: 1, account: AMEX, note: 'Gadget Hut', deleted: true, manual: true }),
+      txn({ date: '2026-09-16', amount: 500, account: CHECKING, note: 'Transfer to savings', deleted: true }),
+      txn({ date: '2026-09-15', amount: 12, categoryId: 1, account: AMEX, note: 'Corner Store' }),
+    ])
+    const { container } = render(view())
+    await screen.findByText('Corner Store')
+    expect(container.querySelector('.txn-count')?.textContent).toBe('1 transaction')
+    fireEvent.click(screen.getByRole('tab', { name: /Removed/ }))
+    await screen.findByText('Gadget Hut')
+    // A bank's own tombstone (a transfer) is not a removed row.
+    expect(screen.queryByText('Transfer to savings')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Gadget Hut.*Tap to restore/ }))
+    await waitFor(async () => expect(await db.transactions.get(1)).toMatchObject({ deleted: false, manual: true }))
+  })
+
+  it('B11: a pinned pending row the bank retired when it posted is not offered back (it would count twice)', async () => {
+    await seed([
+      // Filed by hand while pending; the bank posted it under a new id and retired this one.
+      txn({ date: '2026-09-17', amount: 133, categoryId: 1, account: AMEX, note: 'PLONK MARKET', deleted: true, manual: true, retired: true }),
+      txn({ date: '2026-09-18', amount: 133, categoryId: 1, account: AMEX, note: 'PLONK MARKET #12', manual: true }),
+    ])
+    render(view())
+    await screen.findByText(/Plonk Market/)
+    expect(screen.queryByRole('tab', { name: /Removed/ })).toBeNull()
+  })
+
+  it('B11: a month whose only rows were removed still offers them', async () => {
+    await seed([txn({ date: '2026-09-17', amount: 30, categoryId: 1, account: AMEX, note: 'Gadget Hut', deleted: true, manual: true })])
+    render(view())
+    fireEvent.click(await screen.findByRole('tab', { name: /Removed/ }))
+    await screen.findByText('Gadget Hut')
+  })
 })
+

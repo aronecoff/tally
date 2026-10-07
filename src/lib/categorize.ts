@@ -24,6 +24,48 @@ import { getUserRules, type RuleKind, type UserRule } from './userRules'
 const FIXED_CATEGORIES = new Set(['rent', 'subscriptions', 'health'])
 export const isFixedCategory = (name: string) => FIXED_CATEGORIES.has(name.trim().toLowerCase())
 
+/**
+ * The seeded categories carry a `key` (their original name, lower case) that
+ * survives a rename. Fixed-bill projection and rent dating read the key or an
+ * explicit `fixed` flag, never the current name: renaming Rent to "Housing"
+ * used to switch both off (and Home flipped to 'Likely to go over').
+ */
+const BUILT_IN = new Set([
+  'groceries', 'dining', 'rent', 'transport', 'subscriptions', 'health', 'shopping', 'fun', 'other',
+  'salary', 'freelance', 'other income',
+])
+/** The built-in key for a seeded category's name ('Other income' → 'other income'), else undefined. */
+export function builtInKey(name: string): string | undefined {
+  const k = (name ?? '').trim().toLowerCase()
+  return BUILT_IN.has(k) ? k : undefined
+}
+
+type CatLike = { name: string; key?: string; fixed?: boolean }
+/** A fixed monthly bill: the explicit flag, else the built-in key, else (rows from before keys) the name. */
+export const isFixed = (c: CatLike) => c.fixed ?? (c.key ? FIXED_CATEGORIES.has(c.key) : isFixedCategory(c.name))
+/** The rent category: keyed 'rent', or (no key yet) named Rent. Never a generic fixed bill. */
+export const isRentCategory = (c: CatLike) => (c.key ? c.key === 'rent' : c.name.trim().toLowerCase() === 'rent')
+/** The pay category: keyed 'salary', or (no key yet) named Salary. Kept through a rename. */
+export const isSalaryCategory = (c: CatLike & { kind: string }) =>
+  c.kind === 'income' && (c.key ? c.key === 'salary' : c.name.trim().toLowerCase() === 'salary')
+
+/**
+ * A rule's category name (built-in or the user's own) resolved to one of the
+ * user's categories: the seeded one by its key first, so a rename keeps
+ * filing, then by name. Kind-matched: an expense never lands in an income
+ * category, even when two categories share a name.
+ */
+export function findCategoryFor<C extends CatLike & { kind: string; deleted?: boolean }>(
+  name: string | null | undefined,
+  kind: 'expense' | 'income',
+  cats: readonly C[],
+): C | undefined {
+  if (!name) return undefined
+  const want = name.trim().toLowerCase()
+  const live = cats.filter((c) => !c.deleted && (c.kind === 'income') === (kind === 'income'))
+  return live.find((c) => c.key === want) ?? live.find((c) => c.name.trim().toLowerCase() === want)
+}
+
 type Rule = { match: RegExp; category: string; priority: number }
 
 // Every rule carries a priority and the lowest number that matches wins. The
@@ -33,14 +75,16 @@ type Rule = { match: RegExp; category: string; priority: number }
 
 // Expense keyword → category.
 const EXPENSE_RULES: Rule[] = [
-  // Rent / housing (specific, first).
-  { priority: 10, match: /\brent\b|landlord|property ?mgmt|leasing|apartment/i, category: 'Rent' },
+  // Rent / housing (specific, first). Not "rent" in a car or furniture rental's
+  // name, not the apartments.com listing site, and not a car lease: those ran
+  // ahead of Transport and Shopping and were then re-dated as next month's rent.
+  { priority: 10, match: /\brent\b(?![- ]?(a[- ]?(car|center|wreck)|the[- ]?runway))|landlord|property ?(mgmt|management)|leasing ?office|apartments?\b(?!\.com)/i, category: 'Rent' },
   // Groceries
   { priority: 20, match: /grocer|whole ?foods|trader ?joe|safeway|costco|kroger|aldi|wegmans|publix|sprouts|instacart|\bh-?e-?b\b/i, category: 'Groceries' },
   // Dining — restaurants, delivery, cafes, bars
   { priority: 30, match: /restaurant|cafe|coffee|starbucks|blue ?bottle|doordash|uber ?eats|grubhub|postmates|chipotle|pizza|taco|sushi|korean|\bbbq\b|dunkin|mcdonald|burger|in-?n-?out|\bbar\b|grill|kitchen|eatery|deli|bakery|ice ?cream/i, category: 'Dining' },
   // Transport — rideshare, fuel, EV charging, transit, air, parking, auto insurance
-  { priority: 40, match: /\buber\b|lyft|shell|chevron|exxon|\bgas\b|fuel|supercharger|charge ?point|insta ?charge|electrify|\bevgo\b|\btesla\b|parking|\bbart\b|transit|caltrain|\btoll\b|amtrak|delta|united|american air|airlines?|progressive|geico|state ?farm|allstate|\bdmv\b/i, category: 'Transport' },
+  { priority: 40, match: /\buber\b|lyft|shell|chevron|exxon|\bgas\b|fuel|supercharger|charge ?point|insta ?charge|electrify|\bevgo\b|\btesla\b|parking|\bbart\b|transit|caltrain|\btoll\b|amtrak|delta|united|american air|airlines?|progressive|geico|state ?farm|allstate|\bdmv\b|rent[- ]?a[- ]?car|car ?rental|\bhertz\b|\bavis\b|\bsixt\b|\balamo\b(?!\s*drafthouse)|europcar|\bturo\b|zipcar|u-?haul|auto ?leas/i, category: 'Transport' },
   // Subscriptions — streaming, SaaS, digital, telecom, memberships
   { priority: 50, match: /netflix|spotify|hulu|disney|youtube|\bhbo\b|paramount|peacock|adobe|figma|canva|notion|icloud|dropbox|1password|openai|chatgpt|anthropic|\bclaude\b|vercel|github|google ?(photos|one|storage|drive)|\bapple\.com|itunes|app ?store|audible|prime ?video|kindle|patreon|substack|subscription|annual ?membership/i, category: 'Subscriptions' },
   // Fitness EQUIPMENT retailers — before Health so "Rogue Fitness" doesn't
@@ -49,7 +93,7 @@ const EXPENSE_RULES: Rule[] = [
   // Health — pharmacy, medical, fitness services (memberships, care)
   { priority: 70, match: /pharmacy|\bcvs\b|walgreens|rite ?aid|doctor|dental|dentist|clinic|hospital|\bgym\b|fitness|equinox|peloton|therapy|optometr/i, category: 'Health' },
   // Shopping — retail, apparel, general merchandise, online stores
-  { priority: 80, match: /amazon|\btarget\b|walmart|best ?buy|\bikea\b|home ?depot|lowes|nordstrom|\bmacy|talbots|\basics\b|nike|adidas|\bstore\b|\bshop\b|\.com\b/i, category: 'Shopping' },
+  { priority: 80, match: /amazon|\btarget\b|walmart|best ?buy|\bikea\b|home ?depot|lowes|nordstrom|\bmacy|talbots|\basics\b|nike|adidas|\bstore\b|\bshop\b|\.com\b|rent ?the ?runway|rent[- ]?a[- ]?center/i, category: 'Shopping' },
   // Fun — entertainment, events, gaming
   { priority: 90, match: /movie|cinema|\bamc\b|concert|ticketmaster|stubhub|\bsteam\b|playstation|xbox|nintendo|arcade|bowling|museum/i, category: 'Fun' },
   // Apple services (kept after Shopping's apple.com so device buys read as Shopping,
@@ -108,6 +152,8 @@ const MCC: Record<string, string> = {
   '5541': 'Transport', '5542': 'Transport', '5533': 'Transport', '5983': 'Transport',
   '4111': 'Transport', '4121': 'Transport', '4131': 'Transport', '4784': 'Transport', '7523': 'Transport',
   '4011': 'Transport', '4511': 'Transport', '3000': 'Transport', '3001': 'Transport',
+  // Car rental (3351-3441 are the named agencies, checked as a range below)
+  '7512': 'Transport', '7513': 'Transport', '7519': 'Transport',
   // Subscriptions / telecom / digital
   '4899': 'Subscriptions', '4814': 'Subscriptions', '4815': 'Subscriptions', '4816': 'Subscriptions',
   '5968': 'Subscriptions', '5815': 'Subscriptions', '5816': 'Subscriptions', '5817': 'Subscriptions', '5818': 'Subscriptions',
@@ -155,6 +201,7 @@ export function categorize(input: {
   if (input.kind !== 'income') {
     const mcc = (input.mcc ?? '').trim()
     if (mcc && MCC[mcc]) return MCC[mcc]
+    if (/^\d{4}$/.test(mcc) && Number(mcc) >= 3351 && Number(mcc) <= 3441) return 'Transport'
   }
   const text = [input.payee, input.description, input.memo].filter(Boolean).join(' ')
   return guessCategoryName(text, input.kind)

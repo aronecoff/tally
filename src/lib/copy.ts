@@ -10,6 +10,13 @@ export const INCOME = 'Income'
 export const SPENDING = 'Spending'
 export const SAVED = 'Saved'
 export const OVERSPENT = 'Overspent'
+/** The current month before any income has landed: not 'Overspent'. */
+export const NO_INCOME_YET = 'No income yet'
+/** The current month before its pay has landed, with a small credit in already
+ *  (interest, a cashback): not 'Overspent', and not 'No income yet' beside it. */
+export const NO_PAY_YET = 'No pay yet'
+/** The before-payday word (lib/payday.awaitingPay decides when it shows). */
+export const beforePayday = (income: number) => (income > 0 ? NO_PAY_YET : NO_INCOME_YET)
 /** Always 'budget', never 'limit'. */
 export const BUDGET = 'budget'
 export const NO_BUDGET = 'No budget'
@@ -82,6 +89,9 @@ export function budgetStatus(s: BudgetStatusInput): { text: string; tone: Status
   if (s.state === 'none') {
     return { text: `${NO_BUDGET} · ${s.txnCount} ${s.txnCount === 1 ? 'transaction' : 'transactions'}`, tone: 'muted' }
   }
+  // Refunds bigger than the purchases: the whole budget is left, and what came
+  // back is said, instead of '$1,326 left' of a $1,150 budget.
+  if (s.spent < 0) return { text: `${money(s.limit, { trim: true })} left · ${money(-s.spent)} back`, tone: 'muted' }
   if (s.state === 'over') return { text: `${money(s.spent - s.limit)} over`, tone: 'over' }
   if (s.state === 'pace' && s.canProject) {
     return { text: `~${money(s.projected, { approx: true })} ${BY_MONTH_END}`, tone: 'near' }

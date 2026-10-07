@@ -36,9 +36,18 @@ export interface MoneyOpts {
 export function money(n: number, opts: MoneyOpts = {}): string {
   const whole = opts.approx || (opts.trim && Math.round(Math.abs(n) * 100) % 100 === 0)
   const formatted = (whole ? USD_WHOLE : USD).format(Math.abs(n))
-  if (opts.sign) return `${n < 0 ? '−' : '+'}${formatted}`
-  return `${n < 0 ? '−' : ''}${formatted}`
+  // The sign follows the figure shown, not the raw float: a sum that nets to a
+  // residue like -1.8e-15 read '−$0.00'. Rounded on the magnitude, because
+  // Math.round(-0.5) is -0 and would drop the minus from a real −$0.01.
+  const shown = whole ? Math.round(Math.abs(n)) : Math.round(Math.abs(n) * 100)
+  const neg = n < 0 && shown > 0
+  if (opts.sign) return `${neg ? '−' : '+'}${formatted}`
+  return `${neg ? '−' : ''}${formatted}`
 }
+
+/** Whole cents. Money is summed in cents and divided once, so a total that
+ *  should be exactly a budget (or exactly zero) is exactly that. */
+export const toCents = (n: number) => Math.round(n * 100)
 
 /** money() split at its last '.', so cents can be styled quietly.
  *  `whole + cents === money(n, opts)` always; cents is '' when there are none. */

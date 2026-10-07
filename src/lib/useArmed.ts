@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** A confirming tap within this window of arming is treated as a double-tap and ignored. */
-const DOUBLE_TAP_MS = 350
+export const DOUBLE_TAP_MS = 350
 
 type TimerRef = { current: ReturnType<typeof setTimeout> | null }
 function clearTimer(t: TimerRef) {

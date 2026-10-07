@@ -84,7 +84,19 @@ struct WebView: UIViewRepresentable {
         // Popup sheets keyed by their web view, so window.close() can dismiss them.
         private var popups: [ObjectIdentifier: UINavigationController] = [:]
         private var offlineView: UIView?
+        private var offlineDetail: UILabel?
+        private var offlineDetailText = "Reconnecting automatically."
+        // One-shot retry with backoff. A repeating timer restarted every load
+        // in flight, so a recovery slower than the interval never finished.
         private var retryTimer: Timer?
+        private var attempt = 0
+        private let backoff: [TimeInterval] = [6, 12, 30]
+        /// The page has booted (React mounted and posted its theme) since the
+        /// main frame last committed. didFinish only means index.html and its
+        /// subresources settled: a bundle that 404s or resets still finishes.
+        private var booted = false
+        private var bootWatchdog: Timer?
+        private var traitReg: UITraitChangeRegistration?
 
         init(url: URL) { self.appURL = url }
 
@@ -97,9 +109,22 @@ struct WebView: UIViewRepresentable {
         // ---- Theme bridge ------------------------------------------------------
         func userContentController(_ controller: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
+            // Only the app's own page may set the theme: the handler is visible
+            // to every frame and to the connect portals' popups too.
+            let origin = message.frameInfo.securityOrigin
             guard message.name == "theme",
+                  message.webView === web,                 // not a popup / portal sheet
+                  message.frameInfo.isMainFrame,           // not an iframe
+                  origin.protocol == appURL.scheme,
+                  origin.host == appURL.host,
+                  origin.port == (appURL.port ?? 0),       // WKSecurityOrigin reports 0 for the default port
                   let raw = message.body as? String,
                   let theme = TallyTheme(rawValue: raw) else { return }
+            // useTheme posts on mount, so the first post means the app booted.
+            booted = true
+            bootWatchdog?.invalidate()
+            bootWatchdog = nil
+            hideOffline()
             UserDefaults.standard.set(theme.rawValue, forKey: TallyTheme.key)
             apply(theme)
         }
@@ -111,6 +136,20 @@ struct WebView: UIViewRepresentable {
             guard let web else { return }
             web.backgroundColor = theme.canvas
             web.scrollView.backgroundColor = theme.canvas
+            // The page's prefers-color-scheme comes from the web view's traits.
+            // Pin those to the real OS style (the scene's, which the window
+            // override below does not touch), or 'System' would follow the last
+            // theme the page posted instead of the iPhone. Set before the window
+            // override so the page never sees a passing wrong value.
+            if let scene = web.window?.windowScene {
+                web.overrideUserInterfaceStyle = scene.traitCollection.userInterfaceStyle
+                if traitReg == nil {
+                    traitReg = scene.registerForTraitChanges([UITraitUserInterfaceStyle.self]) {
+                        [weak self] (scene: UIWindowScene, _: UITraitCollection) in
+                        self?.web?.overrideUserInterfaceStyle = scene.traitCollection.userInterfaceStyle
+                    }
+                }
+            }
             // The window's interface style drives the status bar: light content
             // on ink, dark content on paper.
             web.window?.overrideUserInterfaceStyle = theme.style
@@ -189,10 +228,13 @@ struct WebView: UIViewRepresentable {
         // implements these, and confirm() then silently returns false — which
         // is why Delete used to do nothing in the app. The web UI now confirms
         // in-sheet; these are the native backstop.
+        // The handlers are @MainActor to match the SDK (WK_SWIFT_UI_ACTOR). In
+        // Swift 6 mode a plain closure type no longer matches the protocol, the
+        // methods drop out of what WebKit sees, and confirm() returns false.
         func webView(_ webView: WKWebView,
                      runJavaScriptAlertPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo,
-                     completionHandler: @escaping () -> Void) {
+                     completionHandler: @escaping @MainActor () -> Void) {
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
             guard let top = topController() else { completionHandler(); return }
@@ -202,7 +244,7 @@ struct WebView: UIViewRepresentable {
         func webView(_ webView: WKWebView,
                      runJavaScriptConfirmPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo,
-                     completionHandler: @escaping (Bool) -> Void) {
+                     completionHandler: @escaping @MainActor (Bool) -> Void) {
             let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { _ in completionHandler(false) })
             alert.addAction(UIAlertAction(title: "OK", style: .destructive) { _ in completionHandler(true) })
@@ -215,7 +257,7 @@ struct WebView: UIViewRepresentable {
         // belong to the system, not the web view.
         func webView(_ webView: WKWebView,
                      decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                     decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             if let url = navigationAction.request.url,
                let scheme = url.scheme?.lowercased(),
                !["http", "https", "about", "blob", "data"].contains(scheme) {
@@ -223,7 +265,36 @@ struct WebView: UIViewRepresentable {
                 decisionHandler(.cancel)
                 return
             }
+            // The app's own view stays on the app. A page inside a connect portal
+            // could otherwise send it to a look-alike sign-in page, and the app has
+            // no address bar to give that away. Other web pages open in Safari,
+            // which shows where they are. Popups (the portals) are not affected.
+            if webView === web,
+               navigationAction.targetFrame?.isMainFrame == true,
+               let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https",
+               !isAppURL(url) {
+                UIApplication.shared.open(url)
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(.allow)
+        }
+
+        /// Same scheme, host and port as the app, under the app's path.
+        private func isAppURL(_ url: URL) -> Bool {
+            guard url.scheme?.lowercased() == appURL.scheme?.lowercased(),
+                  url.host?.lowercased() == appURL.host?.lowercased(),
+                  url.port == appURL.port else { return false }
+            func trimmed(_ p: String) -> String {
+                var p = p
+                while p.hasSuffix("/") { p.removeLast() }
+                return p
+            }
+            let base = trimmed(appURL.path)
+            let path = trimmed(url.path)
+            return path == base || path.hasPrefix(base + "/")
         }
 
         // ---- Resilience ---------------------------------------------------------
@@ -233,9 +304,34 @@ struct WebView: UIViewRepresentable {
             webView.reload()
         }
 
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            guard webView === web else { return }
+            setOfflineDetail("Connecting…")
+        }
+
+        // Reset at commit, not at didFinish: the page can post its theme
+        // seconds before didFinish when a subresource (the manifest) is slow.
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            guard webView === web else { return }
+            booted = false
+            bootWatchdog?.invalidate()
+            bootWatchdog = nil
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             if webView === web {
-                hideOffline()
+                // index.html loaded; the theme post says the app itself did.
+                // A bundle that failed leaves a blank canvas, so give it 10 s
+                // and then fall back to the offline screen and its retries.
+                guard !booted else { hideOffline(); return }
+                bootWatchdog?.invalidate()
+                bootWatchdog = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, !self.booted else { return }
+                        self.bootWatchdog = nil
+                        self.failed()
+                    }
+                }
             } else if let nav = popups[ObjectIdentifier(webView)] {
                 nav.topViewController?.navigationItem.title = webView.url?.host
             }
@@ -258,7 +354,45 @@ struct WebView: UIViewRepresentable {
             guard webView === web else { return }
             let code = (error as NSError).code
             guard code != NSURLErrorCancelled else { return }
+            failed()
+        }
+
+        /// A load failed, or loaded without the app booting: show the offline
+        /// screen and schedule the next attempt.
+        private func failed() {
+            setOfflineDetail("Reconnecting automatically.")
             showOffline()
+            scheduleRetry()
+        }
+
+        private func scheduleRetry() {
+            retryTimer?.invalidate()
+            let delay = backoff[min(attempt, backoff.count - 1)]
+            attempt += 1
+            retryTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.retryTimer = nil
+                    // Never cut off a load in flight: it ends in didFinish (boot
+                    // or watchdog) or in a failure, and either schedules again.
+                    guard let web = self.web, !web.isLoading else { return }
+                    self.load()
+                }
+            }
+        }
+
+        private func load() {
+            retryTimer?.invalidate()
+            retryTimer = nil
+            setOfflineDetail("Connecting…")
+            // An idle timeout, not a cap on the whole load: a slow link that
+            // keeps sending is never cut off, a stalled request fails and retries.
+            web?.load(URLRequest(url: appURL, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 20))
+        }
+
+        private func setOfflineDetail(_ text: String) {
+            offlineDetailText = text
+            offlineDetail?.text = text
         }
 
         private func showOffline() {
@@ -274,7 +408,7 @@ struct WebView: UIViewRepresentable {
                 title.font = .preferredFont(forTextStyle: .headline)
 
                 let detail = UILabel()
-                detail.text = "Reconnecting automatically."
+                detail.text = offlineDetailText
                 detail.textColor = theme.ink.withAlphaComponent(0.62)
                 detail.font = .preferredFont(forTextStyle: .subheadline)
                 detail.numberOfLines = 0
@@ -285,8 +419,13 @@ struct WebView: UIViewRepresentable {
                 buttonConfig.cornerStyle = .capsule
                 buttonConfig.baseBackgroundColor = theme.sage
                 buttonConfig.baseForegroundColor = theme.canvas
+                // Always reloads, even mid-load: one deliberate tap is not a
+                // loop, and it is the way out of an attempt that has stalled.
                 let retry = UIButton(configuration: buttonConfig,
-                                     primaryAction: UIAction { [weak self] _ in self?.retry() })
+                                     primaryAction: UIAction { [weak self] _ in
+                                         self?.attempt = 0
+                                         self?.load()
+                                     })
 
                 let stack = UIStackView(arrangedSubviews: [title, detail, retry])
                 stack.axis = .vertical
@@ -307,23 +446,17 @@ struct WebView: UIViewRepresentable {
                     stack.trailingAnchor.constraint(lessThanOrEqualTo: overlay.trailingAnchor, constant: -32),
                 ])
                 offlineView = overlay
+                offlineDetail = detail
             }
-            if retryTimer == nil {
-                retryTimer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { [weak self] _ in
-                    self?.retry()
-                }
-            }
-        }
-
-        private func retry() {
-            web?.load(URLRequest(url: appURL))
         }
 
         private func hideOffline() {
             retryTimer?.invalidate()
             retryTimer = nil
+            attempt = 0
             offlineView?.removeFromSuperview()
             offlineView = nil
+            offlineDetail = nil
         }
     }
 }

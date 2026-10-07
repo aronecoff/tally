@@ -94,14 +94,64 @@ describe('literal fallbacks', () => {
     await expect(connectBrokerage()).rejects.toThrow('Could not reach the server. Try again.')
   })
 
-  it("the transport's own message still wins over the fallback", async () => {
-    invoke.mockResolvedValueOnce(httpError(undefined, 'Failed to send a request to the Edge Function'))
-    await expect(syncBanks()).rejects.toThrow('Failed to send a request to the Edge Function')
+  // B97: the library's own words ('Failed to send a request to the Edge
+  // Function') never reach the screen. A request that never left (offline,
+  // DNS) says to check the connection; a server hiccup with no detail is the
+  // plain retry line. Neither reads as an expired token, 'not connected' or a
+  // sign-in prompt.
+  const fetchError = () => ({
+    data: null,
+    error: Object.assign(new Error('Failed to send a request to the Edge Function'), {
+      name: 'FunctionsFetchError',
+      context: new TypeError('Failed to fetch'),
+    }),
+  })
+  const OFFLINE = 'Could not reach the server. Check your connection and try again.'
+
+  it('a request that never left says to check the connection, for banks and brokerage', async () => {
+    invoke.mockResolvedValueOnce(fetchError())
+    await expect(syncBanks()).rejects.toThrow(OFFLINE)
+    expect(health()).toBe('ok')
+    invoke.mockResolvedValueOnce(fetchError())
+    await expect(connectBrokerage()).rejects.toThrow(OFFLINE)
+  })
+
+  it('a relay or server error with no detail is the plain retry line', async () => {
+    invoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('Relay Error invoking the Edge Function'), { name: 'FunctionsRelayError', context: {} }),
+    })
+    await expect(syncBanks()).rejects.toThrow(/^Could not reach the server\. Try again\.$/)
+    invoke.mockResolvedValueOnce(httpError(undefined))
+    await expect(connectBrokerage()).rejects.toThrow(/^Could not reach the server\. Try again\.$/)
   })
 
   it('a brokerage portal with no URL', async () => {
     invoke.mockResolvedValueOnce({ data: { ok: true, redirectURI: '' }, error: null })
     await expect(connectBrokerage()).rejects.toThrow('Could not start the connection. Try again.')
+  })
+
+  // B116: only an https portal is opened. A javascript: or data: URL would run
+  // inside Tally's own blank window, and a non-string reply reads '[object Object]'.
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,hi',
+    'http://portal.example.test/connect',
+    '[object Object]',
+    'not a url',
+  ])('a portal URL that is not https is refused: %s', async (bad) => {
+    invoke.mockResolvedValueOnce({ data: { ok: true, redirectURI: bad }, error: null })
+    await expect(connectBrokerage()).rejects.toThrow('Could not start the connection. Try again.')
+  })
+
+  it('an object in place of the portal URL is refused', async () => {
+    invoke.mockResolvedValueOnce({ data: { ok: true, redirectURI: { redirectURI: 'https://portal.example.test/' } }, error: null })
+    await expect(connectBrokerage()).rejects.toThrow('Could not start the connection. Try again.')
+  })
+
+  it('an https portal URL is returned as is', async () => {
+    invoke.mockResolvedValueOnce({ data: { ok: true, redirectURI: 'https://portal.example.test/connect?token=abc' }, error: null })
+    await expect(connectBrokerage()).resolves.toBe('https://portal.example.test/connect?token=abc')
   })
 })
 

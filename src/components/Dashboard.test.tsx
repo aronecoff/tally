@@ -11,6 +11,8 @@
  *
  * The fixture is an illustrative September 2026 on day 22: $5,525.66 spent
  * against $6,375 of budgets, projected ~$6,774, so the hero reads 'Likely to go over'.
+ * Other's $1,742.58 arrives as four ordinary charges: a single row that size is
+ * a one-off, counted once and never paced (lib/projection.ts).
  */
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,9 +59,10 @@ const txn = (date: string, amount: number, categoryId: number | null, extra: Par
   ...extra,
 })
 
+const OTHER = [435.64, 435.64, 435.65, 435.65] // $1,742.58
 const SEPTEMBER: Transaction[] = [
   txn('2026-09-01', 2875, 3),
-  txn('2026-09-14', 1742.58, 9),
+  ...OTHER.map((a, i) => txn(`2026-09-1${i}`, a, 9)),
   txn('2026-09-05', 296.18, 7),
   txn('2026-09-08', 214.53, 4),
   txn('2026-09-03', 84.97, 5),
@@ -87,7 +90,14 @@ const figureOf = (root: HTMLElement, key: string) => {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-09-22T12:00:00'))
+  // jsdom has no scrollIntoView. A row opened from another screen is brought
+  // into view on the next frame, which threw whenever no earlier test had
+  // stubbed it (--sequence.shuffle). Each test that opens a row also waits for
+  // its own scroll, so no frame is left to land in a later test.
+  Element.prototype.scrollIntoView = vi.fn()
 })
+/** The elements brought into view so far, in order. */
+const scrolled = () => vi.mocked(Element.prototype.scrollIntoView).mock.contexts
 
 afterEach(async () => {
   cleanup()
@@ -111,8 +121,8 @@ describe('Budget hero: unbudgeted note', () => {
   })
 
   it('is not shown on an on-track month', async () => {
-    // Same month without the big Other payment: projected under the budget.
-    const root = await renderMonth('2026-09', SEPTEMBER.filter((t) => t.amount !== 1742.58))
+    // Same month without the Other charges: projected under the budget.
+    const root = await renderMonth('2026-09', SEPTEMBER.filter((t) => t.categoryId !== 9))
     expect(root.querySelector('.hero-state')?.textContent).toBe('On track')
     expect(root.querySelector('.bud-cap-note')).toBeNull()
   })
@@ -132,8 +142,9 @@ describe('Budget hero: unbudgeted note', () => {
 
   it('gives a past month with nothing in it no verdict: no state word, no sage', async () => {
     const root = await renderMonth('2026-03', [])
-    expect(root.querySelector('.hero-state')).toBeNull()
-    expect(root.querySelector('.hero-fig')?.textContent).toBe('$0.00')
+    // B104: no verdict word and no $0.00 figure; it says there is no activity.
+    expect(root.querySelector('.hero-state')?.textContent).toBe('No activity in March 2026.')
+    expect(root.querySelector('.hero-fig')).toBeNull()
     expect(root.querySelector('.bud-meta .pos, .bud-meta .over')).toBeNull()
     // The current month keeps its verdict even before anything is spent.
     cleanup()
@@ -175,12 +186,15 @@ describe('Budget: opened from another screen', () => {
     await waitFor(() => expect(view.container.querySelector('#bud-uncat.open .bud-txns')).not.toBeNull())
     expect(consumed).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: 'nearest' }))
+    expect(scrolled()).toEqual([view.container.querySelector('#bud-uncat')])
     // The same nonce again is a no-op; a new one re-applies.
     view.rerender(<Dashboard month="2026-09" categories={CATEGORIES} active initialOpen={{ key: 'uncat', n: 1 }} onInitialOpenConsumed={consumed} />)
     expect(consumed).toHaveBeenCalledTimes(1)
     view.rerender(<Dashboard month="2026-09" categories={CATEGORIES} active initialOpen={{ key: '9', n: 2 }} onInitialOpenConsumed={consumed} />)
     await waitFor(() => expect(view.container.querySelector('#bud-9.open')).not.toBeNull())
     expect(consumed).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(scrolled()).toHaveLength(2))
+    expect(scrolled()[1]).toBe(view.container.querySelector('#bud-9'))
   })
 })
 
@@ -201,6 +215,7 @@ describe('Budget: refunds', () => {
     const view = render(<Dashboard month="2026-09" categories={CATEGORIES} active initialOpen={{ key: '7', n: 1 }} />)
     await waitFor(() => expect(view.container.querySelector('#bud-7.open .bud-txns')).not.toBeNull())
     const root = view.container
+    await waitFor(() => expect(scrolled()).toEqual([root.querySelector('#bud-7')]))
 
     expect(figureOf(root, '7')).toBe(250) // 296.18 of purchases less the 46.18 back
     expect(root.querySelector('.hero-fig')?.textContent).toBe(money(5525.66 - 46.18))
@@ -214,3 +229,87 @@ describe('Budget: refunds', () => {
     expect(rows.at(-1)).toBe(back)
   })
 })
+
+describe('Budget hero: a one-off lump', () => {
+  it('counts once instead of being paced to month-end', async () => {
+    const lump = [...SEPTEMBER.filter((t) => t.categoryId !== 9), txn('2026-09-14', 1742.58, 9)]
+    const root = await renderMonth('2026-09', lump)
+    // Paced, the $1,742.58 alone added ~$634 and the hero read 'Likely to go over'.
+    expect(root.querySelector('.hero-state')?.textContent).toBe('On track')
+  })
+})
+
+describe('Budget: figures summed to the cent', () => {
+  const SUBS = [cat(5, 'Subscriptions', 29.99, 0), cat(8, 'Fun', 150, 1), cat(20, 'Salary', 0, 0, 'income')]
+
+  it('a fixed bill paid exactly to its budget reads Paid, not $0.00 over', async () => {
+    await db.transactions.clear()
+    await db.transactions.bulkAdd([
+      txn('2026-08-03', 9.99, 5),
+      txn('2026-08-04', 20, 5),
+      txn('2026-08-10', 29.99, 20, { type: 'income' }),
+    ])
+    const view = render(<Dashboard month="2026-08" categories={SUBS} active />)
+    await waitFor(() => expect(view.container.querySelector('.bud-list')).not.toBeNull())
+    const root = view.container
+    expect(root.querySelector('#bud-5 .traj-meta')?.textContent).toBe('Paid')
+    expect(root.querySelector('.hero-state')?.textContent).toBe('On track')
+    expect(root.querySelector('.bud-meta')?.textContent).toBe('Income $29.99 · Saved $0.00')
+  })
+
+  it('a category refunded to exactly zero shows $0.00, not −$0.00', async () => {
+    await db.transactions.clear()
+    await db.transactions.bulkAdd([txn('2026-08-03', 10.1, 8), txn('2026-08-04', 20.2, 8), txn('2026-08-05', -30.3, 8)])
+    const view = render(<Dashboard month="2026-08" categories={SUBS} active />)
+    await waitFor(() => expect(view.container.querySelector('.bud-list')).not.toBeNull())
+    expect(view.container.querySelector('#bud-8 .traj-figs strong')?.textContent).toBe('$0.00')
+  })
+})
+
+describe('Budget meta before payday', () => {
+  it('the live month with no income yet is not Overspent', async () => {
+    const root = await renderMonth('2026-09', SEPTEMBER.filter((t) => t.type !== 'income'))
+    expect(root.querySelector('.bud-meta')?.textContent).toBe('Income $0.00 · No income yet')
+    expect(root.querySelector('.bud-meta .over')).toBeNull()
+  })
+
+  it('a past month that earned nothing still says Overspent', async () => {
+    const root = await renderMonth('2026-08', [txn('2026-08-01', 2875, 3)])
+    expect(root.querySelector('.bud-meta')?.textContent).toBe('Income $0.00 · Overspent $2,875.00')
+  })
+
+  it('interest before payday is not pay: still no Overspent', async () => {
+    const cats = [...CATEGORIES, cat(21, 'Other income', 0, 9, 'income')]
+    await db.transactions.clear()
+    await db.transactions.bulkAdd([
+      // August was paid; September so far has spent and earned only interest.
+      txn('2026-08-14', 2984.37, 20, { type: 'income' }),
+      txn('2026-09-01', 2875, 3),
+      txn('2026-09-05', 296.18, 7),
+      txn('2026-09-06', 12.4, 21, { type: 'income' }),
+    ])
+    const view = render(<Dashboard month="2026-09" categories={cats} active />)
+    await waitFor(() => expect(view.container.querySelector('.bud-list')).not.toBeNull())
+    const meta = view.container.querySelector('.bud-meta')!
+    expect(meta.textContent).toBe('Income $12.40 · No pay yet')
+    expect(meta.querySelector('.over')).toBeNull()
+  })
+})
+
+describe('Budget forecast one-offs', () => {
+  it('a monthly bill in a flexible budget counts once', async () => {
+    const cats = [cat(4, 'Transport', 600, 0), cat(20, 'Salary', 0, 1, 'income')]
+    const car = (date: string) => txn(date, 318.4, 4, { note: 'ACME MOTORS' })
+    await db.transactions.clear()
+    await db.transactions.bulkAdd([car('2026-07-01'), car('2026-08-01'), car('2026-09-01'), txn('2026-09-04', 11.6, 4, { note: 'CITY PARKING' })])
+    vi.setSystemTime(new Date('2026-09-07T12:00:00'))
+    const view = render(<Dashboard month="2026-09" categories={cats} active />)
+    await waitFor(() => expect(view.container.querySelector('.bud-list')).not.toBeNull())
+    const root = view.container
+    // round(318.40 + 11.60 / (7/30)) = $368, not round(330 / (7/30)) = $1,414.
+    expect(root.querySelector('.hero-state')?.textContent).toBe('On track')
+    expect(root.querySelector('.hero-caption')?.textContent).toBe('of $600 budget · ~$368 by month-end')
+    expect(root.querySelector('#bud-4 .traj-meta')?.textContent ?? '').not.toContain('by month-end')
+  })
+})
+

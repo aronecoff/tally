@@ -52,6 +52,11 @@ describe('dates relative to a fixed today (2026-09-22 12:00 local)', () => {
     expect(dayHeading('2026-09-18')).toBe('Fri, Sep 18')
     expect(dayHeading('2026-09-01')).toBe('Tue, Sep 1')
     expect(dayHeading('2025-09-18')).toBe('Thu, Sep 18, 2025')
+    // Read against a given day (a list left open past midnight passes the new one).
+    expect(dayHeading('2026-09-22', '2026-09-23')).toBe('Yesterday')
+    expect(dayHeading('2026-09-21', '2026-09-23')).toBe('Mon, Sep 21')
+    expect(dayHeading('2026-12-31', '2027-01-01')).toBe('Yesterday')
+    expect(dayHeading('2026-12-30', '2027-01-01')).toBe('Wed, Dec 30, 2026')
   })
 
   it('ago: just now, minutes, hours, days', () => {

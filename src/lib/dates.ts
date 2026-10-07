@@ -37,20 +37,26 @@ export function shiftDayISO(dateISO: string, delta: number): string {
   return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`
 }
 
-/** "Jun 3" — short label for a transaction row. */
-export function dayLabel(dateISO: string): string {
+/** "Jun 3" — short label for a transaction row. With `year`, a day in any other
+ *  year carries its own: "Apr 1, 2027". */
+export function dayLabel(dateISO: string, year?: number): string {
   const [y, m, d] = dateISO.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(year != null && y !== year ? { year: 'numeric' } : {}),
+  })
 }
 
-/** Day header: "Today", "Yesterday", "Fri, Sep 18", or "Fri, Sep 18, 2025" in another year. */
-export function dayHeading(dateISO: string): string {
-  const today = todayISO()
+/** Day header: "Today", "Yesterday", "Fri, Sep 18", or "Fri, Sep 18, 2025" in another year.
+ *  `today` (YYYY-MM-DD) is the day it is read against; a memoised list passes
+ *  it so the headings move on at midnight. */
+export function dayHeading(dateISO: string, today: string = todayISO()): string {
   if (dateISO === today) return 'Today'
   if (dateISO === shiftDayISO(today, -1)) return 'Yesterday'
   const [y, m, d] = dateISO.split('-').map(Number)
   const date = new Date(y, m - 1, d)
-  const sameYear = y === new Date().getFullYear()
+  const sameYear = y === Number(today.slice(0, 4))
   return date.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',

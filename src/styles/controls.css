@@ -115,8 +115,17 @@
     font-weight: var(--w-medium);
     line-height: 1;
     white-space: nowrap;
+    /* Never wider than its row: a long category name ends in '…' (.chip-label).
+       No overflow here: it would cut the name with no ellipsis, and the hit slop. */
+    max-width: 100%;
     transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out),
       color var(--dur-1) var(--ease-out), transform var(--dur-2) var(--ease-out);
+  }
+
+  .chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .chip::after {
@@ -131,6 +140,7 @@
   }
 
   .chip .chip-ic {
+    flex: none;
     color: var(--text-3);
     display: grid;
     place-items: center;

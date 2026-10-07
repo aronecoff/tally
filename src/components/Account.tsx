@@ -6,7 +6,8 @@ import { ago } from '../lib/dates'
 import { rovingKeys } from '../lib/pressable'
 import type { ThemePref } from '../lib/useTheme'
 import { Icon } from './Icon'
-import { Sheet, useSheetClose } from './Sheet'
+import { Sheet } from './Sheet'
+import { useSheetClose } from './sheetStack'
 
 interface Props {
   onClose: () => void
@@ -40,7 +41,7 @@ export function Account({ onClose, pref, setPref, onCategories, onBankConnection
       <SettingsBody
         pref={pref}
         setPref={setPref}
-        after={after}
+        afterRef={after}
         onCategories={onCategories}
         onBankConnections={onBankConnections}
       />
@@ -55,10 +56,10 @@ const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
 ]
 
 interface BodyProps extends Omit<Props, 'onClose'> {
-  after: RefObject<(() => void) | null>
+  afterRef: RefObject<(() => void) | null>
 }
 
-function SettingsBody({ pref, setPref, after, onCategories, onBankConnections }: BodyProps) {
+function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections }: BodyProps) {
   const close = useSheetClose()
   const [snap, setSnap] = useState<SyncSnapshot | null>(null)
   const [email, setEmail] = useState('')
@@ -69,6 +70,9 @@ function SettingsBody({ pref, setPref, after, onCategories, onBankConnections }:
   const [newPw, setNewPw] = useState('')
   const [pwBusy, setPwBusy] = useState(false)
   const [pwMsg, setPwMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  /** Sign out asked to be confirmed: what a second tap erases from this device. */
+  const [outConfirm, setOutConfirm] = useState<string | null>(null)
+  const [outBusy, setOutBusy] = useState(false)
   // Re-render every 30s so 'Synced 3m ago' stays true while the sheet is open.
   const [, setTick] = useState(0)
 
@@ -105,7 +109,7 @@ function SettingsBody({ pref, setPref, after, onCategories, onBankConnections }:
   }
 
   const go = (next: () => void) => {
-    after.current = next
+    afterRef.current = next
     close()
   }
 
@@ -218,15 +222,30 @@ function SettingsBody({ pref, setPref, after, onCategories, onBankConnections }:
         {appearance}
         {screens}
 
+        {outConfirm && <p className="sheet-err">{outConfirm}</p>}
         <button
           type="button"
           className="sheet-signout"
+          disabled={outBusy}
           onClick={async () => {
-            await signOutSync()
+            if (outBusy) return
+            setOutBusy(true)
+            const r = await signOutSync({ confirmed: outConfirm != null }).catch(() => null)
+            setOutBusy(false)
+            if (r && !r.ok) {
+              setOutConfirm(r.confirm)
+              return
+            }
+            // Dropped on this device only (server unreachable): no sign-out
+            // event fired, so start over from the stored state.
+            if (r?.local) {
+              location.reload()
+              return
+            }
             close()
           }}
         >
-          Sign out
+          {outBusy ? 'Signing out…' : outConfirm ? 'Sign out and erase' : 'Sign out'}
         </button>
       </>
     )

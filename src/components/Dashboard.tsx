@@ -1,11 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
-import { money } from '../lib/format'
-import { isFixedCategory } from '../lib/categorize'
-import { paceProjector } from '../lib/projection'
-import { budgetStatus, rowState, INCOME, OVERSPENT, SAVED, SPENDING, BY_MONTH_END, type RowState } from '../lib/copy'
-import { currentMonth, dayLabel } from '../lib/dates'
+import { money, toCents } from '../lib/format'
+import { isFixed } from '../lib/categorize'
+import { BILL_MONTHS, oneOffRows, paceProjector } from '../lib/projection'
+import { awaitingPay } from '../lib/payday'
+import { beforePayday, budgetStatus, rowState, INCOME, OVERSPENT, SAVED, SPENDING, BY_MONTH_END, type RowState } from '../lib/copy'
+import { dayLabel, monthLabel, shiftMonth } from '../lib/dates'
+import { useToday } from '../lib/useToday'
+import { useKeyedLiveQuery } from '../lib/useKeyedLiveQuery'
 import { isRefund } from '../lib/ledger'
 import { pressable } from '../lib/pressable'
 import { useSettle } from '../lib/motion'
@@ -36,6 +38,8 @@ interface Row {
   spent: number
   limit: number
   projected: number
+  /** A fixed monthly bill (the category's flag or built-in key, so a rename keeps it). */
+  fixed: boolean
   state: RowState
   txns: Transaction[]
   pendingCount: number
@@ -54,24 +58,47 @@ const reducedMotion = () =>
  * unchanged; the two display-only sums at the end (unbudgeted, idle) add up
  * row figures that are already on screen.
  */
-function buildModel(txns: Transaction[], categories: Category[], isCurrent: boolean, dayOfMonth: number, daysInMonth: number) {
-  const byCat = new Map<number | null, number>()
+function buildModel(
+  month: string,
+  txns: Transaction[],
+  history: Transaction[],
+  categories: Category[],
+  isCurrent: boolean,
+  dayOfMonth: number,
+  daysInMonth: number,
+) {
+  // Summed in whole cents and divided once: a float sum of 9.99 + 20.00 is
+  // 29.990000000000002, which read 'Over budget · $0.00 over' a $29.99 budget.
+  const byCatC = new Map<number | null, number>()
+  // One-off rows count once, never at daily pace: big rows, refunds and
+  // monthly bills (projection.oneOffRows, from the months before this one).
+  const lumpByCatC = new Map<number | null, number>()
+  const once = oneOffRows(txns, history, month)
   const txByCat = new Map<number | null, Transaction[]>()
-  let income = 0
-  let expense = 0
+  let incomeC = 0
+  let expenseC = 0
+  /** Display-only: rows in the month (an empty month says so, B104). */
+  let count = 0
   for (const t of txns) {
     if (t.deleted) continue
+    count++
+    const c = toCents(t.amount)
     if (t.type === 'income') {
-      income += t.amount
+      incomeC += c
       continue
     }
-    expense += t.amount
-    byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + t.amount)
+    expenseC += c
+    byCatC.set(t.categoryId, (byCatC.get(t.categoryId) ?? 0) + c)
+    if (once.has(t)) lumpByCatC.set(t.categoryId, (lumpByCatC.get(t.categoryId) ?? 0) + c)
     const list = txByCat.get(t.categoryId)
     if (list) list.push(t)
     else txByCat.set(t.categoryId, [t])
   }
   for (const list of txByCat.values()) list.sort((a, b) => b.amount - a.amount)
+  const income = incomeC / 100
+  const expense = expenseC / 100
+  const spentIn = (id: number | null) => (byCatC.get(id) ?? 0) / 100
+  const lumpIn = (id: number | null) => (lumpByCatC.get(id) ?? 0) / 100
   const pendingIn = (list: Transaction[]) => list.reduce((n, t) => n + (t.pending ? 1 : 0), 0)
 
   // All pace math lives in lib/projection.ts (shared with Home). Past months
@@ -81,14 +108,17 @@ function buildModel(txns: Transaction[], categories: Category[], isCurrent: bool
   const expenseCats = categories.filter((c) => c.kind === 'expense').sort((a, b) => a.sortOrder - b.sortOrder)
   const catSpends = expenseCats.map((c) => ({
     name: c.name,
-    spent: byCat.get(c.id!) ?? 0,
+    spent: spentIn(c.id!),
     budget: c.monthlyBudget || 0,
+    fixed: isFixed(c),
+    lump: lumpIn(c.id!),
   }))
   const rows: Row[] = expenseCats
     .map((c) => {
-      const spent = byCat.get(c.id!) ?? 0
+      const spent = spentIn(c.id!)
       const limit = c.monthlyBudget || 0
-      const projected = p.forCategory(c.name, spent, limit)
+      const fixed = isFixed(c)
+      const projected = p.forCategory(c.name, spent, limit, { fixed, lump: lumpIn(c.id!) })
       const list = txByCat.get(c.id!) ?? []
       return {
         id: c.id!,
@@ -97,18 +127,29 @@ function buildModel(txns: Transaction[], categories: Category[], isCurrent: bool
         spent,
         limit,
         projected,
+        fixed,
         // The shared thresholds (lib/copy.ts rowState, a verbatim copy of this screen's).
-        state: rowState({ spent, limit, projected, fixed: isFixedCategory(c.name), isCurrent }),
+        state: rowState({ spent, limit, projected, fixed, isCurrent }),
         txns: list,
         pendingCount: pendingIn(list),
       }
     })
-    .filter((r) => r.limit > 0 || r.spent > 0)
+    // A category with no budget stays while it has rows this month, a net
+    // refund included: dropped, the rows no longer added up to the hero.
+    .filter((r) => r.limit > 0 || r.spent !== 0 || r.txns.length > 0)
 
-  const uncat = byCat.get(null) ?? 0
-  if (uncat > 0) {
-    const list = txByCat.get(null) ?? []
-    rows.push({ id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, limit: 0, projected: p.extrapolate(uncat), state: 'none', txns: list, pendingCount: pendingIn(list) })
+  const uncat = spentIn(null)
+  const uncatLump = lumpIn(null)
+  // Listed whenever rows sit in it, even when a refund there outweighs the
+  // purchases: they still need a category.
+  const uncatList = txByCat.get(null) ?? []
+  if (uncat !== 0 || uncatList.length > 0) {
+    const list = uncatList
+    rows.push({
+      id: null, name: 'Uncategorized', icon: 'tag', spent: uncat, limit: 0,
+      projected: p.forCategory('Uncategorized', uncat, 0, { fixed: false, lump: uncatLump }),
+      fixed: false, state: 'none', txns: list, pendingCount: pendingIn(list),
+    })
   }
 
   // Attention first: over, then pace, then near, then Uncategorized (the one
@@ -117,21 +158,26 @@ function buildModel(txns: Transaction[], categories: Category[], isCurrent: bool
   const rankOf = (r: Row) => (r.id === null ? 2.5 : rank[r.state])
   rows.sort((a, b) => rankOf(a) - rankOf(b) || b.spent - a.spent)
 
-  const totalLimit = expenseCats.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
+  const totalLimit = expenseCats.reduce((s, c) => s + toCents(c.monthlyBudget || 0), 0) / 100
   const idle = rows.filter(isIdle)
   return {
+    count,
     income,
     expense,
-    net: income - expense,
+    net: (incomeC - expenseC) / 100,
     rows: rows.filter((r) => !isIdle(r)),
     idle,
     totalLimit,
-    projectedTotal: p.monthEnd(catSpends, expense),
+    projectedTotal: p.monthEnd(catSpends, expense, uncatLump),
     canProject: p.canProject && isCurrent,
     /** Display-only: spend in rows with no budget (Other + Uncategorized). */
-    unbudgetedTotal: rows.filter((r) => r.limit <= 0 && r.spent > 0).reduce((s, r) => s + r.spent, 0),
+    unbudgetedTotal: rows.filter((r) => r.limit <= 0 && r.spent > 0).reduce((s, r) => s + toCents(r.spent), 0) / 100,
     /** Display-only: the budgets of the idle rows. */
-    idleSum: idle.reduce((s, r) => s + r.limit, 0),
+    idleSum: idle.reduce((s, r) => s + toCents(r.limit), 0) / 100,
+    // The live month before payday (lib/payday.ts, shared with Home and
+    // Insights). A finished month that earned nothing really did spend more
+    // than it took in, so it keeps its word.
+    awaitingIncome: isCurrent && awaitingPay(month, txns, history, categories),
   }
 }
 
@@ -153,25 +199,37 @@ export const Dashboard = memo(function Dashboard({
 }: Props) {
   const [open, setOpen] = useState<string | null>(null)
   // No default: undefined means 'still loading' (a skeleton), never an empty month.
-  const txns = useLiveQuery(() => db.transactions.where('date').startsWith(month).toArray(), [month])
+  // A month step suspends rather than show the old month's figures under the
+  // new label (lib/useKeyedLiveQuery).
+  const txns = useKeyedLiveQuery(month, () => db.transactions.where('date').startsWith(month).toArray())
+  // The months before: monthly bills (counted once in the projection) and
+  // last month's income (has this month's pay landed?).
+  const history = useKeyedLiveQuery(month, () =>
+    db.transactions.where('date').between(`${shiftMonth(month, -BILL_MONTHS)}-01`, `${month}-01`).toArray(),
+  )
 
-  const isCurrent = month === currentMonth()
+  // The clock as a subscription, so a pane left open past midnight moves on.
+  const today = useToday()
+  const isCurrent = month === today.slice(0, 7)
   const [y, m] = month.split('-').map(Number)
   const daysInMonth = new Date(y, m, 0).getDate()
-  const dayOfMonth = isCurrent ? new Date().getDate() : daysInMonth
+  const dayOfMonth = isCurrent ? Number(today.slice(8, 10)) : daysInMonth
 
   // A hidden (keep-alive) pane keeps its last picture and skips the rebuild
   // until it is shown again; the catch-up happens in the render that shows it.
   const live = useMemo(
-    () => ({ txns, categories, isCurrent, daysInMonth, dayOfMonth }),
-    [txns, categories, isCurrent, daysInMonth, dayOfMonth],
+    () => ({ month, txns, history, categories, isCurrent, daysInMonth, dayOfMonth }),
+    [month, txns, history, categories, isCurrent, daysInMonth, dayOfMonth],
   )
   const [shown, setShown] = useState(live)
   if (active && shown !== live) setShown(live)
   const src = active ? live : shown
 
   const data = useMemo(
-    () => (src.txns ? buildModel(src.txns, src.categories, src.isCurrent, src.dayOfMonth, src.daysInMonth) : null),
+    () =>
+      src.txns && src.history
+        ? buildModel(src.month, src.txns, src.history, src.categories, src.isCurrent, src.dayOfMonth, src.daysInMonth)
+        : null,
     [src],
   )
 
@@ -224,8 +282,14 @@ export const Dashboard = memo(function Dashboard({
   const pct = hasLimit ? Math.min(100, (data.expense / data.totalLimit) * 100) : 0
   const left = data.totalLimit - data.expense
   const hasSpend = wheelSlices.length > 0
-  // A past month with nothing in it has no verdict: no state word, no sage.
+  // A past month that nets to nothing has no verdict: no state word, no sage.
   const noData = !src.isCurrent && data.expense === 0 && data.income === 0
+  // A past month with no rows at all (before any history) says so, as Insights
+  // and Activity do, instead of $0.00 against a budget rail. Keyed on rows, not
+  // totals: refunds that cancel purchases are still a month with activity.
+  const empty = !src.isCurrent && data.count === 0
+  // The live month before payday: not 'Overspent' (buildModel).
+  const awaitingIncome = data.awaitingIncome
 
   const drill = (r: Row) => (
     <ul className="bud-txns" id={`bud-txns-${rowKey(r)}`}>
@@ -242,7 +306,7 @@ export const Dashboard = memo(function Dashboard({
             <span className="bud-txn-note">
               {t.pending && <Pending />}
               {isRefund(t) && <Refund />}
-              {t.note || 'Transaction'}
+              <span className="bud-txn-name">{t.note || 'Transaction'}</span>
             </span>
             <span className={`bud-txn-amt num${isRefund(t) ? ' pos' : ''}`}>
               {isRefund(t) ? '+' : ''}
@@ -273,7 +337,7 @@ export const Dashboard = memo(function Dashboard({
       isUncategorized: r.id === null,
       txnCount: r.txns.length,
       pendingCount: r.pendingCount,
-      fixed: isFixedCategory(r.name),
+      fixed: r.fixed,
     })
     return (
       <li key={key} id={`bud-${key}`} className={`bud-cat row-sep${expanded ? ' open' : ''}`}>
@@ -301,7 +365,7 @@ export const Dashboard = memo(function Dashboard({
                 {/* Pace tick: fill past this mark = spending faster than the
                     month is passing. Fixed bills land up front by design, so
                     flagging them would be noise. */}
-                {paceP != null && !isFixedCategory(r.name) && <i className="traj-pace" style={{ left: `${paceP}%` }} />}
+                {paceP != null && !r.fixed && <i className="traj-pace" style={{ left: `${paceP}%` }} />}
               </span>
             )}
             <span className="traj-meta">
@@ -349,13 +413,14 @@ export const Dashboard = memo(function Dashboard({
         {/* Hero: the month's spend, a verdict word, and the rail that proves it. */}
         <section className="card-sect bud-hero enter" ref={heroRef}>
           <span className="hero-label">{src.isCurrent ? `${SPENDING} so far` : SPENDING}</span>
+          {empty && <span className="hero-state">No activity in {monthLabel(month)}.</span>}
           {hasLimit && !noData && (
             <span className={`hero-state ${heroState}`}>
               {over ? 'Over budget' : overPace ? 'Likely to go over' : 'On track'}
             </span>
           )}
-          <Money className="hero-fig" value={data.expense} />
-          {hasLimit && (
+          {!empty && <Money className="hero-fig" value={data.expense} />}
+          {hasLimit && !empty && (
             <>
               <div className="cf-bar bud-hero-rail">
                 <div
@@ -389,10 +454,20 @@ export const Dashboard = memo(function Dashboard({
               )}
             </>
           )}
-          <p className="bud-meta num">
-            {INCOME} {money(data.income)} · {data.net >= 0 ? SAVED : OVERSPENT}{' '}
-            <span className={noData ? undefined : data.net >= 0 ? 'pos' : 'over'}>{money(Math.abs(data.net))}</span>
-          </p>
+          {!empty && (
+            <p className="bud-meta num">
+              {awaitingIncome ? (
+                <>
+                  {INCOME} {money(data.income)} · {beforePayday(data.income)}
+                </>
+              ) : (
+                <>
+                  {INCOME} {money(data.income)} · {data.net >= 0 ? SAVED : OVERSPENT}{' '}
+                  <span className={noData ? undefined : data.net >= 0 ? 'pos' : 'over'}>{money(Math.abs(data.net))}</span>
+                </>
+              )}
+            </p>
+          )}
         </section>
 
         {/* Budget wheel: angle = share of this month's spending. */}

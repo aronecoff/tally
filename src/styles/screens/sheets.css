@@ -128,7 +128,9 @@
   }
 
   /* ---- Type, categories, fields ------------------------------------------- */
-  .sheet[data-sheet='txn'] .seg {
+  /* Expense/Income on a transaction; the balance's sign on an account. */
+  .sheet[data-sheet='txn'] .seg,
+  .sheet[data-sheet='account'] .seg {
     align-self: center;
     width: min(236px, 100%);
   }
@@ -548,13 +550,13 @@
   }
 
   /* ---- Tell Tally: one line in, a preview of exactly what changes ---------- */
-  .cmd-result {
+  .sheet[data-sheet='command'] .cmd-result {
     display: flex;
     flex-direction: column;
     gap: var(--s-2);
   }
 
-  .cmd-title {
+  .sheet[data-sheet='command'] .cmd-title {
     margin: 0;
     font-size: var(--fs-row);
     font-weight: var(--w-medium);
@@ -563,8 +565,8 @@
     text-wrap: pretty;
   }
 
-  .cmd-note,
-  .cmd-error {
+  .sheet[data-sheet='command'] .cmd-note,
+  .sheet[data-sheet='command'] .cmd-error {
     margin: 0;
     font-size: var(--fs-caption);
     line-height: 1.4;
@@ -573,28 +575,31 @@
     text-wrap: pretty;
   }
 
-  .cmd-error {
+  .sheet[data-sheet='command'] .cmd-error {
     font-size: var(--fs-meta);
     color: var(--near);
   }
 
-  .cmd-examples {
+  .sheet[data-sheet='command'] .cmd-examples {
     display: flex;
     flex-direction: column;
     gap: var(--s-3);
     margin-top: var(--s-2);
   }
 
-  .cmd-rows {
+  .sheet[data-sheet='command'] .cmd-rows {
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .cmd-row {
+  /* date | name (ellipsis) | amount | to. Every column but the name is fixed
+     or capped, so the amount is never what gets cut, a long category never
+     squeezes the name to nothing, and every name starts at the same x. */
+  .sheet[data-sheet='command'] .cmd-row {
     position: relative;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 3.8em minmax(0, 1fr) auto fit-content(30%);
     align-items: center;
     gap: var(--s-3);
     min-height: var(--row-1);
@@ -602,7 +607,12 @@
     font-size: var(--fs-meta);
   }
 
-  .cmd-row + .cmd-row::before {
+  /* A row from another year carries it: 'Dec 30, 2025'. */
+  .sheet[data-sheet='command'] .cmd-rows.has-year > .cmd-row {
+    grid-template-columns: 6.6em minmax(0, 1fr) auto fit-content(30%);
+  }
+
+  .sheet[data-sheet='command'] .cmd-row + .cmd-row::before {
     content: '';
     position: absolute;
     top: 0;
@@ -611,12 +621,13 @@
     border-top: var(--hairline-w) solid var(--hairline);
   }
 
-  .cmd-row-date {
+  .sheet[data-sheet='command'] .cmd-row-date {
     color: var(--text-3);
     white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
 
-  .cmd-row-name {
+  .sheet[data-sheet='command'] .cmd-row-name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -624,7 +635,16 @@
     color: var(--text-1);
   }
 
-  .cmd-row-to {
+  .sheet[data-sheet='command'] .cmd-row-amt {
+    color: var(--text-1);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sheet[data-sheet='command'] .cmd-row-to {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--text-2);
     font-weight: var(--w-medium);
     white-space: nowrap;
@@ -640,7 +660,7 @@
   }
 
   /* Visual 36, hit 44: quiet, like the delete, in the neutral colour. */
-  .cmd-undo {
+  .sheet[data-sheet='command'] .cmd-undo {
     position: relative;
     align-self: center;
     height: var(--ctl-md);
@@ -653,13 +673,13 @@
     font-weight: var(--w-medium);
   }
 
-  .cmd-undo::after {
+  .sheet[data-sheet='command'] .cmd-undo::after {
     content: '';
     position: absolute;
     inset: -4px 0;
   }
 
-  .cmd-undo:active {
+  .sheet[data-sheet='command'] .cmd-undo:active {
     background: var(--fill-press);
     transform: scale(var(--press-scale));
     transition-duration: var(--dur-press);
@@ -667,7 +687,7 @@
 
   /* ---- Hover: pointer devices only ------------------------------------------ */
   @media (hover: hover) and (pointer: fine) {
-    .cmd-undo:hover {
+    .sheet[data-sheet='command'] .cmd-undo:hover {
       background: var(--fill-press);
     }
     .sheet[data-sheet='txn'] .txn-lookup:hover {

@@ -60,5 +60,10 @@ export default defineConfig({
     // alongside the real ones — doubling the suite and letting a stale worktree
     // fail `npm test` on main.
     exclude: [...configDefaults.exclude, '.claude/**'],
+    // Vitest stubs every CSS import to '' unless told otherwise. Tests that pin
+    // layout rules jsdom cannot apply read a stylesheet's text with `?raw`.
+    css: { include: [/\.css\?raw$/] },
+    // One tab per test file: no Dexie notices across files (see the file).
+    setupFiles: ['./src/test-setup.ts'],
   },
 })

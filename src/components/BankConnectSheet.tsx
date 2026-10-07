@@ -1,7 +1,8 @@
 import { useId, useState } from 'react'
-import { claimBank, syncBanks } from '../lib/banks'
+import { connectBank } from '../lib/banks'
 import { Icon } from './Icon'
-import { Sheet, SheetActions, useSheetClose } from './Sheet'
+import { Sheet, SheetActions } from './Sheet'
+import { useSheetClose } from './sheetStack'
 
 interface Props {
   onClose: () => void
@@ -63,9 +64,17 @@ function BankConnectForm({ onResult }: Pick<Props, 'onResult'>) {
     setBusy(true)
     setErr(null)
     try {
-      await claimBank(t)
-      const n = await syncBanks()
-      onResult(n ? `Connected ${n} account${n === 1 ? '' : 's'}.` : 'Bank connected.', false)
+      // Claims the token, then fetches balances AND transactions at once: a
+      // reconnect used to fetch balances only, and say 'updated just now'.
+      const r = await connectBank(t)
+      const n = r.shown
+      const parts = [n ? `Connected ${n} account${n === 1 ? '' : 's'}.` : 'Bank connected.']
+      // Counted from what is shown: an account removed earlier stays hidden.
+      if (r.removed) {
+        parts.push(`${r.removed === 1 ? '1 removed account stays' : `${r.removed} removed accounts stay`} hidden. Restore under Connections.`)
+      }
+      if (!n && r.errors.length) parts.push(r.errors[0])
+      onResult(parts.join(' '), false)
       close()
     } catch (e) {
       // Not signed in / sync not set up are not token problems: say so. Every

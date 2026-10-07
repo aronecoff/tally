@@ -1,4 +1,5 @@
 import { db, type Category } from './db'
+import { builtInKey, isFixedCategory } from '../lib/categorize'
 import { supabase } from './supabase'
 
 type SeedCategory = Omit<Category, 'id' | 'updatedAt'>
@@ -20,32 +21,75 @@ const DEFAULTS: SeedCategory[] = [
   { name: 'Other income', icon: 'plus-circle', color: '#a3e635', kind: 'income', monthlyBudget: 0, sortOrder: 11 },
 ]
 
+/** The default set as rows to add. `seeded` marks a device-local seed (sync.ts). */
+export function defaultCategories(seeded = false): Category[] {
+  const now = Date.now()
+  return DEFAULTS.map((c) => ({
+    ...c,
+    key: builtInKey(c.name),
+    fixed: isFixedCategory(c.name),
+    ...(seeded ? { seeded: true } : {}),
+    updatedAt: now,
+  }))
+}
+
+type Verdict = 'signed-out' | 'cloud-has' | 'cloud-empty' | 'unknown'
+const CHECK_MS = 3000
+
+/**
+ * What the cloud says about seeding, within CHECK_MS. Offline, auth retries a
+ * token refresh for about 25 s per call and postgrest retries the count with
+ * backoff, and the boot skeleton waited on all of it. No answer is 'unknown'.
+ */
+async function cloudVerdict(): Promise<Verdict> {
+  const sb = supabase!
+  const check = (async (): Promise<Verdict> => {
+    const { data } = await sb.auth.getSession()
+    if (!data.session) return 'signed-out'
+    const { count, error } = await sb
+      .from('categories')
+      .select('id', { count: 'exact', head: true })
+      .retry(false)
+      .abortSignal(AbortSignal.timeout(CHECK_MS))
+    if (error || count == null) return 'unknown'
+    return count > 0 ? 'cloud-has' : 'cloud-empty'
+  })().catch((): Verdict => 'unknown')
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<Verdict>((r) => {
+    timer = setTimeout(() => r('unknown'), CHECK_MS)
+  })
+  try {
+    return await Promise.race([check, late])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Populate default categories on first run only. Safe to call on every boot.
+ *
+ * A device that already has categories returns at once, before any network
+ * call, so a signed-in launch with no connection paints straight away.
+ *
+ * Signed out (or a new account with an empty cloud), the defaults are seeded
+ * and marked `seeded`: the first pull keeps only the ones the account adopts or
+ * a transaction uses (sync.ts), so a default the account renamed does not come
+ * back. Signed in with categories in the cloud, or with no answer, nothing is
+ * seeded: the pull brings the account's own, and seeds if it finds none.
  *
  * The count-check and insert run inside one read-write transaction so they're
  * atomic — otherwise React StrictMode's double-invoked effect (or any two
  * concurrent callers) can both observe an empty table and seed twice.
  */
 export async function seedIfEmpty(): Promise<void> {
-  // When signed in, don't seed if the cloud already has categories — the pull
-  // will bring them. Seeding here would create a duplicate set that gets pushed
-  // alongside the cloud's. Only a genuinely new account (empty cloud) seeds.
+  if ((await db.categories.count()) > 0) return
   if (supabase) {
-    try {
-      const { data } = await supabase.auth.getSession()
-      if (data.session) {
-        const { count } = await supabase.from('categories').select('id', { count: 'exact', head: true })
-        if ((count ?? 0) > 0) return
-      }
-    } catch {
-      /* offline or auth hiccup — fall through to the local count check */
-    }
+    const verdict = await cloudVerdict()
+    if (verdict === 'cloud-has' || verdict === 'unknown') return
   }
   await db.transaction('rw', db.categories, async () => {
     const count = await db.categories.count()
     if (count > 0) return
-    const now = Date.now()
-    await db.categories.bulkAdd(DEFAULTS.map((c) => ({ ...c, updatedAt: now })))
+    await db.categories.bulkAdd(defaultCategories(true))
   })
 }

@@ -1,5 +1,4 @@
 import {
-  createContext,
   useCallback,
   useContext,
   useEffect,
@@ -8,7 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type AnimationEvent as ReactAnimationEvent,
   type FocusEvent as ReactFocusEvent,
   type PointerEvent as ReactPointerEvent,
@@ -16,6 +14,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from './Icon'
+import { Ctx, getStack, isTop, register, unregister, type SheetCtx, type SheetKind } from './sheetStack'
 
 /**
  * The one sheet primitive. Every sheet (transaction, account, bank, settings)
@@ -37,13 +36,6 @@ import { Icon } from './Icon'
  * unmount a closed sheet, so the app can never sit inert behind a dead scrim.
  */
 
-export type SheetKind = 'txn' | 'account' | 'bank' | 'settings' | 'command'
-
-interface Entry {
-  id: string
-  kind: SheetKind
-}
-
 const mq = (q: string) => typeof window.matchMedia === 'function' && window.matchMedia(q).matches
 
 /** Close without an exit animation: Reduce Motion, or no way to animate or to ask. */
@@ -63,80 +55,12 @@ function exitMs(): number {
   return /ms$/.test(v) ? n : /s$/.test(v) ? n * 1000 : n
 }
 
-// ---- Module-level stack: top-most sheet handles keys; inert is ref-counted ----
-let stack: readonly Entry[] = []
-let inertCount = 0
-const subscribers = new Set<() => void>()
-
-function setRootInert(on: boolean) {
-  const root = document.getElementById('root')
-  if (!root) return
-  if (on) root.setAttribute('inert', '')
-  else root.removeAttribute('inert')
-}
-
-function register(entry: Entry) {
-  if (stack.some((e) => e.id === entry.id)) return
-  stack = [...stack, entry]
-  inertCount++
-  if (inertCount === 1) setRootInert(true)
-  subscribers.forEach((f) => f())
-}
-
-function unregister(id: string) {
-  if (!stack.some((e) => e.id === id)) return
-  stack = stack.filter((e) => e.id !== id)
-  inertCount = Math.max(0, inertCount - 1)
-  if (inertCount === 0) setRootInert(false)
-  subscribers.forEach((f) => f())
-}
-
-const isTop = (id: string) => stack.length > 0 && stack[stack.length - 1].id === id
-
-function subscribe(f: () => void) {
-  subscribers.add(f)
-  return () => {
-    subscribers.delete(f)
-  }
-}
-const getStack = () => stack
-
-/** The open sheets, bottom to top (e.g. to hide the reconnect banner while the bank sheet is up). */
-export function useOpenSheets(): readonly Entry[] {
-  return useSyncExternalStore(subscribe, getStack, getStack)
-}
-
-// ---- Context: close, dirty and the actions slot for the body ----------------
-interface SheetCtx {
-  close: () => void
-  setDirty: (dirty: boolean) => void
-  actionsEl: HTMLElement | null
-}
-const Ctx = createContext<SheetCtx | null>(null)
-
-/** Close the enclosing sheet with its exit animation (onClose runs after it). */
-export function useSheetClose(): () => void {
-  const ctx = useContext(Ctx)
-  return ctx ? ctx.close : noop
-}
-
-/** Report unsaved edits from inside the body: a drag-down then springs back instead of closing. */
-export function useSheetDirty(dirty: boolean) {
-  const ctx = useContext(Ctx)
-  const setDirty = ctx?.setDirty
-  useEffect(() => {
-    setDirty?.(dirty)
-  }, [setDirty, dirty])
-}
-
 /** Renders its children in the sheet's pinned footer (outside the scrolling body). */
 export function SheetActions({ children }: { children: ReactNode }) {
   const ctx = useContext(Ctx)
   if (!ctx?.actionsEl) return null
   return createPortal(children, ctx.actionsEl)
 }
-
-function noop() {}
 
 const FIELD = 'input, textarea, select'
 const INTERACTIVE = 'button, a, input, textarea, select, label'
@@ -150,7 +74,7 @@ interface Props {
   kind: SheetKind
   title: ReactNode
   onClose: () => void
-  /** Unsaved edits: a drag-down springs back and nudges instead of closing. */
+  /** Unsaved edits: a drag-down, Escape or a scrim tap nudges instead of closing. */
   dirty?: boolean
   /** Pinned footer content (bodies can also use <SheetActions>). */
   actions?: ReactNode
@@ -172,6 +96,13 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
   const [opener] = useState<HTMLElement | null>(() =>
     typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null,
   )
+
+  // Set by the body when focus should not go back to the opener on close (a
+  // delete removes the row that opened the sheet).
+  const returnTo = useRef<HTMLElement | null>(null)
+  const setReturnFocus = useCallback((el: HTMLElement | null) => {
+    returnTo.current = el
+  }, [])
 
   const onCloseRef = useRef(onClose)
   useLayoutEffect(() => {
@@ -211,6 +142,31 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
     dirtyBody.current = d
   }, [])
 
+  /** Unsaved edits kept the sheet open: say so. A small dip of the sheet, or
+   *  under Reduce Motion (no movement) a pulse of the X, the explicit discard. */
+  const nudge = useCallback((delay: number) => {
+    const sheet = sheetRef.current
+    if (!sheet || typeof sheet.animate !== 'function') return
+    if (instantClose()) {
+      sheet.querySelector('.sheet-close')?.animate([{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }], { duration: 480, delay })
+      return
+    }
+    sheet.animate(
+      [{ transform: 'translate3d(0, 0, 0)' }, { transform: 'translate3d(0, 8px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      { duration: 260, delay, easing: 'cubic-bezier(.22,1,.36,1)' },
+    )
+  }, [])
+
+  /** Escape and the scrim: close, unless there are unsaved edits (the X and
+   *  the body's own Save/Delete close through close() and always do). */
+  const requestClose = useCallback(() => {
+    if (dirtyProp.current || dirtyBody.current) {
+      nudge(0)
+      return
+    }
+    close()
+  }, [close, nudge])
+
   // Register in the stack (inert on the first sheet) for as long as it is mounted.
   useEffect(() => {
     if (doneRef.current) return
@@ -229,9 +185,12 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
     if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true })
     return () => {
       queueMicrotask(() => {
-        if (stack.some((e) => e.id === id)) return
-        if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === 'function') {
-          opener.focus({ preventScroll: true })
+        if (getStack().some((e) => e.id === id)) return
+        // The body's override wins: the opener may still be in the page at
+        // this point and leave a moment later (a deleted row).
+        const target = returnTo.current?.isConnected ? returnTo.current : opener
+        if (target && target !== document.body && target.isConnected && typeof target.focus === 'function') {
+          target.focus({ preventScroll: true })
         }
       })
     }
@@ -243,7 +202,7 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
       if (!isTop(id)) return
       if (e.key === 'Escape') {
         e.preventDefault()
-        close()
+        requestClose()
         return
       }
       if (e.key !== 'Tab') return
@@ -271,7 +230,7 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [id, close])
+  }, [id, requestClose])
 
   // Keyboard inset: keep the sheet (and its pinned actions) above the iOS
   // keyboard. --kb is the part of the layout viewport the keyboard covers.
@@ -362,19 +321,24 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
     // edits are what kept it open.
     sheet.style.transform = ''
     bd.style.setProperty('--drag', '0')
-    if (wantsClose && dirtyNow && !instantClose()) {
-      sheet.animate(
-        [{ transform: 'translate3d(0, 0, 0)' }, { transform: 'translate3d(0, 8px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
-        { duration: 260, delay: 300, easing: 'cubic-bezier(.22,1,.36,1)' },
-      )
-    }
+    if (wantsClose && dirtyNow) nudge(300)
   }
+
+  // The scrim closes only when the press both starts and ends on it. A
+  // text-selection drag from a field released over the scrim (or a press on
+  // the scrim released in the sheet) clicks the backdrop too: the click goes
+  // to the nearest common ancestor of the press and the release.
+  const pressOnScrim = useRef(false)
+  const releaseOnScrim = useRef(false)
 
   const onAnimationEnd = (e: ReactAnimationEvent<HTMLDivElement>) => {
     if (closingRef.current && e.target === e.currentTarget) finish()
   }
 
-  const ctx = useMemo<SheetCtx>(() => ({ close, setDirty, actionsEl }), [close, setDirty, actionsEl])
+  const ctx = useMemo<SheetCtx>(
+    () => ({ close, setDirty, actionsEl, opener, setReturnFocus }),
+    [close, setDirty, actionsEl, opener, setReturnFocus],
+  )
 
   if (typeof document === 'undefined') return null
 
@@ -382,8 +346,17 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
     <div
       ref={backdropRef}
       className={`sheet-backdrop${closing ? ' is-closing' : ''}`}
+      onPointerDown={(e) => {
+        pressOnScrim.current = e.target === e.currentTarget
+      }}
+      onPointerUp={(e) => {
+        releaseOnScrim.current = e.target === e.currentTarget
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) close()
+        const onScrim = e.target === e.currentTarget && pressOnScrim.current && releaseOnScrim.current
+        pressOnScrim.current = false
+        releaseOnScrim.current = false
+        if (onScrim) requestClose()
       }}
     >
       <div

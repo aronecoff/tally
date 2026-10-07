@@ -2,35 +2,44 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { RootBoundary } from './components/RootBoundary'
+import { reloadOnUpdate } from './lib/swUpdate'
 
-// `registerType: 'autoUpdate'` installs a new service worker but does NOT
-// refresh an open page, so the app kept executing the previously cached bundle.
-// Reloading once the new worker takes control is what delivers an update, but
-// never mid-edit: the reload waits until the page is hidden, or idle (no sheet
-// open and no focused field), retrying on visibilitychange and focusout.
+// A new deploy reloads the page once nothing is being edited (lib/swUpdate).
 if ('serviceWorker' in navigator) {
-  let pending = false
-  let reloading = false
-  const typing = () => {
-    const a = document.activeElement as HTMLElement | null
-    return !!a && (a.matches('input, textarea, select') || a.isContentEditable)
-  }
-  const idle = () => document.visibilityState === 'hidden' || (!document.querySelector('.sheet') && !typing())
-  const tryReload = () => {
-    if (!pending || reloading || !idle()) return
-    reloading = true
-    window.location.reload()
-  }
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    pending = true
-    tryReload()
-  })
-  document.addEventListener('visibilitychange', tryReload)
-  document.addEventListener('focusout', () => window.setTimeout(tryReload, 400))
+  reloadOnUpdate({ sw: navigator.serviceWorker, doc: document, reload: () => window.location.reload() })
 }
 
-createRoot(document.getElementById('root')!).render(
+const rootEl = document.getElementById('root')!
+
+/** Last resort, for an error RootBoundary itself could not catch: React has
+ *  emptied the root, so put a plain Reload button where the app was. */
+function showReload() {
+  if (rootEl.childElementCount > 0) return
+  rootEl.removeAttribute('inert')
+  const box = document.createElement('div')
+  box.className = 'empty'
+  box.setAttribute('role', 'alert')
+  const p = document.createElement('p')
+  p.textContent = 'Tally could not read its data on this device.'
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'detail-toggle'
+  btn.textContent = 'Reload'
+  btn.addEventListener('click', () => window.location.reload())
+  box.append(p, btn)
+  rootEl.append(box)
+}
+
+createRoot(rootEl, {
+  onUncaughtError: (error) => {
+    console.error(error)
+    window.setTimeout(showReload, 0)
+  },
+}).render(
   <StrictMode>
-    <App />
+    <RootBoundary>
+      <App />
+    </RootBoundary>
   </StrictMode>,
 )
