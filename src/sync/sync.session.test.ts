@@ -90,9 +90,10 @@ const h = vi.hoisted(() => {
 vi.mock('../db/supabase', () => ({ supabase: h.supabase }))
 vi.mock('./merchantRules', () => ({ loadMerchantRules: vi.fn(async () => true) }))
 
-import { signOutSync, syncNow } from './sync'
+import { hasCloudSession, signOutSync, syncNow } from './sync'
 import { seedIfEmpty } from '../db/seed'
 import { db } from '../db/db'
+import { importRows, stageRows, undoImport, type SignMode } from '../lib/csvImport'
 import { setUserRules, userRulesReady } from '../lib/userRules'
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -123,6 +124,64 @@ beforeEach(async () => {
   await db.accounts.clear()
 })
 afterEach(() => settle())
+
+describe('an import read the wrong way', () => {
+  const stage = (mode: SignMode) => stageRows([['2026-09-03', 'Corner Market', '54.20']], { date: 0, note: 1, amount: 2 }, mode, []).rows
+  const tick = () => settle(3) // each stamp a new one
+
+  it('goes to the cloud, comes out as a tombstone, and comes back as the file reads now', async () => {
+    const [{ uid }] = stage('negative-expense')
+    const { at } = await importRows(stage('negative-expense'))
+    await syncNow()
+    expect(h.state.tables.transactions.get(uid)).toMatchObject({ deleted: false, type: 'income', amount: 54.2 })
+
+    await tick()
+    await undoImport(at)
+    await syncNow()
+    expect(h.state.tables.transactions.get(uid)).toMatchObject({ deleted: true })
+    expect((await db.transactions.toArray()).filter((t) => !t.deleted)).toEqual([])
+
+    await tick()
+    await importRows(stage('card-positive'), { bringBack: true })
+    await syncNow()
+    expect(h.state.tables.transactions.get(uid)).toMatchObject({ deleted: false, type: 'expense', amount: 54.2 })
+    expect(await db.transactions.count()).toBe(1)
+    await syncNow() // a pull of its own row leaves it as it is
+    expect(await db.transactions.toArray()).toMatchObject([{ deleted: false, type: 'expense' }])
+  })
+
+  it('stays out on another device that pulls the tombstone, and comes back there too', async () => {
+    const [{ uid }] = stage('negative-expense')
+    const row = (p: Row) => cloudTx(uid, { amount: 54.2, type: 'income', note: 'Corner Market', ...p })
+    h.state.tables.transactions.set(uid, row({ created_at: iso(5000), updated_at: iso(5000) }))
+    await syncNow()
+    expect((await db.transactions.toArray())[0]).toMatchObject({ uid, deleted: false, createdAt: 5000 })
+
+    h.state.tables.transactions.set(uid, row({ deleted: true, created_at: iso(5000), updated_at: iso(6000) }))
+    await syncNow()
+    expect((await db.transactions.toArray())[0]).toMatchObject({ deleted: true })
+
+    h.state.tables.transactions.set(uid, row({ type: 'expense', created_at: iso(7000), updated_at: iso(7000) }))
+    await syncNow()
+    expect((await db.transactions.toArray())[0]).toMatchObject({ deleted: false, type: 'expense', createdAt: 7000 })
+  })
+})
+
+describe('hasCloudSession', () => {
+  it('reads a stored session, which is there offline with an expired token', () => {
+    h.state.session = null
+    expect(hasCloudSession()).toBe(false)
+    localStorage.setItem('sb-test-auth-token', '{}')
+    expect(hasCloudSession()).toBe(true)
+  })
+
+  it('stops after a sign-out', async () => {
+    localStorage.setItem('sb-test-auth-token', '{}')
+    h.state.signOutError = { message: 'offline' }
+    await signOutSync({ confirmed: true })
+    expect(hasCloudSession()).toBe(false)
+  })
+})
 
 describe('B55: whose ledger this is', () => {
   it('another account signing in never pushes the last one\'s rows', async () => {

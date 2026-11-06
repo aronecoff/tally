@@ -1,5 +1,6 @@
 import { userEdits } from './accountEdits'
-import { applySyncedAccounts, syncBrokerages, type SyncedAccount } from './brokerage'
+import { applySyncedAccounts, type SyncedAccount } from './accountMerge'
+import { syncBrokerages } from './brokerage'
 import {
   classifyBankTx, detectPendingTransferIds, detectTransferIds, effectiveTier, isoFromUnix, matchRentRefunds, rentDate, rentRefile, tierFromName,
   tierFromRows,
@@ -8,16 +9,16 @@ import {
 } from './bankRules'
 import { categorize, findCategoryFor, isRentCategory } from './categorize'
 import { todayISO } from './dates'
-import { edgeFailure } from './edgeError'
 import { oneRowPerUid } from './ledger'
 import { db, type Account, type Transaction, type TxType } from '../db/db'
-import { supabase } from '../db/supabase'
+import { bankBlockedCopy, bankErrorCopy, bankInvoke as invoke, bankReady, banksConfigured } from './bankTransport'
 import { currentLedgerGeneration, syncNow, type SyncResult } from '../sync/sync'
 import { loadMerchantRules } from '../sync/merchantRules'
+import { dayGap, noteWords, retireFileTwins } from './rowMatch'
 import { userRulesReady } from './userRules'
 
-/** Bank & card linking (via SimpleFIN Bridge) requires Supabase configured. */
-export const banksEnabled = !!supabase
+/** Bank & card linking (via SimpleFIN Bridge) requires its transport configured. */
+export const banksEnabled = banksConfigured
 
 // ---- Bank-connection health (drives the "reconnect" banner) -----------------
 export type BankHealth = 'unknown' | 'ok' | 'expired'
@@ -57,6 +58,12 @@ function setBankWarnings(w: string[]) {
   warningListeners.forEach((l) => l(w))
 }
 
+/** The link was removed on purpose: no banner and no warning stand for it. */
+export function clearBankState(): void {
+  setBankHealth('unknown')
+  setBankWarnings([])
+}
+
 /** SimpleFIN's own error lines: `errors` (protocol 1) and `errlist` (protocol 2). */
 type SimplefinProblems = { errors?: unknown[]; errlist?: { msg?: unknown }[] }
 function problemsOf(d: SimplefinProblems): string[] {
@@ -66,14 +73,6 @@ function problemsOf(d: SimplefinProblems): string[] {
 /** A 401/403 from SimpleFIN means the access token was revoked — reconnect needed. */
 const isExpiredError = (e: unknown) =>
   e instanceof Error && /->\s*40[13]\b|forbidden|unauthorized token/i.test(e.message)
-
-async function invoke<T>(action: string, body: Record<string, unknown> = {}): Promise<T> {
-  if (!supabase) throw new Error('Sync is not configured.')
-  const { data, error } = await supabase.functions.invoke('simplefin', { body: { action, ...body } })
-  if (error) throw await edgeFailure(error)
-  if (data && data.ok === false) throw new Error(data.error || 'Could not reach the server. Try again.')
-  return data as T
-}
 
 /**
  * SimpleFIN refreshes upstream data ONCE every 24h and expects ~24 requests/day.
@@ -198,6 +197,10 @@ function accountMatcher(accounts: Account[]): (t: SyncedTx) => Account | undefin
   }
 }
 
+/** A `transactions` answer. `reconcileFrom` and `edgeTo` (unix seconds) are sent
+ *  only by a transport whose window is shorter than the history it stored. */
+type BankRows = { ok: boolean; transactions: SyncedTx[]; accounts?: unknown[]; reconcileFrom?: number; edgeTo?: number } & SimplefinProblems
+
 /**
  * Pull real transactions from the linked banks/cards and reconcile them into the
  * transactions table, so the budget runs on ACTUAL spending. Excludes internal
@@ -213,9 +216,9 @@ export async function syncBankTransactions(days = 365, opts: { after?: Promise<u
   // A wipe of the local ledger (sign-out, another account) while this runs
   // means its rows belong to the account that left: they are not written.
   const generation = currentLedgerGeneration()
-  let data: { ok: boolean; transactions: SyncedTx[]; accounts?: unknown[] } & SimplefinProblems
+  let data: BankRows
   try {
-    data = await invoke<{ ok: boolean; transactions: SyncedTx[]; accounts?: unknown[] } & SimplefinProblems>('transactions', { days })
+    data = await invoke<BankRows>('transactions', { days })
   } catch (e) {
     if (e instanceof Error && /not connected/i.test(e.message)) return 0
     if (isExpiredError(e)) setBankHealth('expired')
@@ -307,13 +310,16 @@ export async function syncBankTransactions(days = 365, opts: { after?: Promise<u
   // The oldest days of the feed: a transfer leg posted here may have lost its
   // partner off the end of the bank's window, and on its own it reads as
   // income or spending ('DEPOSIT'). Bank-account rows here that no rule can
-  // name are held: not added, not re-read, not tombstoned.
+  // name are held: not added, not re-read, not tombstoned. A purchase date from
+  // before the window drags the oldest row back past where the feed really opens,
+  // and a leg just inside would then be stored as income for good, so a transport
+  // that knows where it opens says so (`edgeTo`).
   let oldestReturned = Infinity
   for (const t of incoming) {
     const p = Number(t.posted)
     if (Number.isFinite(p) && p < oldestReturned) oldestReturned = p
   }
-  const edgeEnd = oldestReturned + 5 * 86400
+  const edgeEnd = Math.max(oldestReturned + 5 * 86400, data.edgeTo ?? 0)
   const held = new Set<string>()
   // A rule that names a category with no live match (renamed or deleted):
   // uid -> 'kind|name', settled against the stored rows below.
@@ -407,11 +413,18 @@ export async function syncBankTransactions(days = 365, opts: { after?: Promise<u
     const cur = acctStart.get(a)
     if (cur === undefined || d < cur) acctStart.set(a, d)
   }
+  // Those rows say how far back an account's feed reaches only to the day, and the
+  // oldest can carry a purchase date from before the window opened. With a short
+  // window read every day, that retired real rows at the edge on every pull, so
+  // such a transport says how far back it can be trusted. A hold is exempt: one the
+  // bank no longer lists is gone, and it comes back if listed again.
+  const trustedFrom = data.reconcileFrom ? isoFromUnix(data.reconcileFrom) : ''
   const startFor = (t: Transaction) => {
     if (t.pending) return windowStart
     const d = acctStart.get(t.account || '')
     if (d === undefined) return '￿' // only undated rows from this account: reconcile none
-    return d > requestedStart ? d : requestedStart
+    const start = d > requestedStart ? d : requestedStart
+    return start > trustedFrom ? start : trustedFrom
   }
   // Likewise, an account missing from this payload (one bank erroring, a partial
   // response) must not mass-delete that account's in-window rows. One that
@@ -680,6 +693,7 @@ export async function syncBankTransactions(days = 365, opts: { after?: Promise<u
         else if (ex.note === row.note) await db.transactions.update(ex.id!, { bankNote: row.note })
       }
     }
+    await retireFileTwins(toAdd, now)
     if (toAdd.length) await db.transactions.bulkAdd(toAdd)
   })
   return added
@@ -687,21 +701,6 @@ export async function syncBankTransactions(days = 365, opts: { after?: Promise<u
 
 /** Before this, a posting time is a missing date (0, null), not a real posting. */
 const MIN_POSTED = Date.UTC(2000, 0, 1) / 1000
-
-const dayGap = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) / 86400000
-
-/** Words a bank adds to any charge's description, which say nothing of the merchant. */
-const NOTE_FILLER = new Set([
-  'pos', 'purchase', 'debit', 'credit', 'card', 'pending', 'ach', 'the', 'and', 'payment', 'www', 'com', 'net', 'inc',
-  'llc', 'ref', 'online', 'recurring', 'visa', 'mastercard', 'auth', 'authorization', 'preauth', 'checkcard', 'check',
-  'transaction', 'trans', 'des', 'web', 'ppd', 'ccd', 'paypal', 'tst', 'store', 'san', 'francisco', 'new', 'york',
-])
-/** The merchant words of a description: its first two of 3+ letters, filler left out
- *  (the place names banks append would match two different shops in one city). */
-function noteWords(note: string | undefined): Set<string> {
-  const words = (note ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && /[a-z]/.test(w) && !NOTE_FILLER.has(w))
-  return new Set(words.slice(0, 2))
-}
 
 /**
  * The earliest day a stored row may have posted. Rent paid from the
@@ -854,16 +853,6 @@ export async function connectBank(setupToken: string): Promise<{ shown: number; 
   return { shown: res.bank?.shown ?? 0, removed: res.bank?.removed ?? 0, errors: res.bankErrors }
 }
 
-async function hasSession(): Promise<boolean> {
-  if (!supabase) return false
-  try {
-    const { data } = await supabase.auth.getSession()
-    return !!data.session
-  } catch {
-    return false
-  }
-}
-
 async function runAllConnectors(force: boolean): Promise<ConnectorResult> {
   // The user's own categorization rules live in the cloud (merchant_rules).
   // Until a copy exists on this device (fetched now, or cached from an earlier
@@ -886,7 +875,7 @@ async function runAllConnectors(force: boolean): Promise<ConnectorResult> {
   // one, so it alone is gated behind the interval. It runs only when it can
   // work: signed in, online, after a good pull, with the rules in hand. A run
   // that could not is not counted against the floor, so the next one fetches.
-  const signedIn = await hasSession()
+  const signedIn = await bankReady()
   const online = typeof navigator === 'undefined' || navigator.onLine !== false
   const bankDue = bankFetchDue(force)
   const doBank = bankDue && signedIn && online && pulled && rulesOk
@@ -906,7 +895,7 @@ async function runAllConnectors(force: boolean): Promise<ConnectorResult> {
   let total = 0
   const errors: string[] = []
   const bankErrors: string[] = []
-  const reason = (r: PromiseRejectedResult) => (r.reason instanceof Error ? r.reason.message : 'Could not refresh. Try again.')
+  const reason = (r: PromiseRejectedResult) => bankErrorCopy(r.reason instanceof Error ? r.reason.message : 'Could not refresh. Try again.')
   if (broker.status === 'fulfilled') total += broker.value || 0
   else errors.push(reason(broker))
   if (bank.status === 'fulfilled') total += bank.value?.shown ?? 0
@@ -920,9 +909,9 @@ async function runAllConnectors(force: boolean): Promise<ConnectorResult> {
   }
   if (bankDue && !doBank && banksEnabled) {
     const why = !signedIn
-      ? 'Sign in to Tally in Settings first.'
+      ? bankBlockedCopy.signIn
       : online && !pulled
-        ? 'Could not reach your Tally data. Bank transactions will refresh on the next sync.'
+        ? bankBlockedCopy.notPulled
         : null
     if (why) {
       errors.push(why)

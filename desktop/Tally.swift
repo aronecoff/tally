@@ -25,7 +25,7 @@ let STALE_TYPES: Set<String> = [
     WKWebsiteDataTypeFetchCache,
 ]
 
-class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, NSWindowDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate, WKDownloadDelegate, NSWindowDelegate {
     var window: NSWindow!
     var web: WKWebView!
     // Child windows opened via window.open() / target=_blank (e.g. the SnapTrade
@@ -48,10 +48,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, NSWindowDelega
 
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default() // persist localStorage + IndexedDB
+        config.applicationNameForUserAgent = "TallyMac" // this build can save a download: the page checks (src/lib/native.ts)
 
         web = WKWebView(frame: frame, configuration: config)
         web.autoresizingMask = [.width, .height]
         web.uiDelegate = self
+        web.navigationDelegate = self
 
         window.contentView = web
         window.makeKeyAndOrderFront(nil)
@@ -212,6 +214,52 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, NSWindowDelega
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         completionHandler(alert.runModal() == .alertFirstButtonReturn)
+    }
+
+    // <input type=file> does nothing unless the host shows the panel: Import a file
+    // and Restore from a file both start here.
+    func webView(_ webView: WKWebView,
+                 runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping @MainActor ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.begin { result in
+            MainActor.assumeIsolated { completionHandler(result == .OK ? panel.urls : nil) }
+        }
+    }
+
+    // A download link (Export transactions, Export a backup) goes nowhere unless the
+    // navigation is turned into a download. Everything else loads as it always has.
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(navigationAction.shouldPerformDownload ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(_ download: WKDownload,
+                  decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String,
+                  completionHandler: @escaping @MainActor (URL?) -> Void) {
+        chooseDestination(suggestedFilename) { url in
+            // WebKit will not write over a file, and the panel has already asked.
+            if let url { try? FileManager.default.removeItem(at: url) }
+            completionHandler(url)
+        }
+    }
+
+    func chooseDestination(_ name: String, _ done: @escaping @MainActor (URL?) -> Void) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name
+        panel.begin { result in
+            MainActor.assumeIsolated { done(result == .OK ? panel.url : nil) }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

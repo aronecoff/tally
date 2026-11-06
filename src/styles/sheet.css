@@ -14,7 +14,7 @@
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    /* The iOS keyboard inset (set by Sheet.tsx from visualViewport). */
+    /* The iOS keyboard inset (set by Sheet.tsx from visualViewport, with --vvh). */
     padding-bottom: var(--kb, 0px);
   }
 
@@ -46,7 +46,7 @@
     position: relative;
     width: 100%;
     max-width: var(--app-max);
-    max-height: calc(100dvh - env(safe-area-inset-top) - 8px - var(--kb, 0px));
+    max-height: calc(var(--vvh, 100dvh) - env(safe-area-inset-top) - 8px);
     display: flex;
     flex-direction: column;
     background: var(--surface-1);
@@ -414,7 +414,7 @@
       padding-bottom: calc(var(--kb) + var(--s-3));
     }
     .sheet-backdrop[data-kb] .sheet {
-      max-height: min(calc(100dvh - var(--kb) - 2 * var(--s-3)), 820px);
+      max-height: min(calc(var(--vvh, 100dvh) - 2 * var(--s-3)), 820px);
     }
     .sheet.is-closing {
       animation: dialogOut var(--dur-2) var(--ease-in) forwards;

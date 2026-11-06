@@ -1,6 +1,7 @@
 import { Component, Fragment, type ReactNode } from 'react'
 import Dexie from 'dexie'
 import { db } from '../db/db'
+import { brand } from '../lib/brand'
 
 /** Reopens before giving up and offering Reload. */
 const MAX_TRIES = 3
@@ -90,7 +91,7 @@ export class RootBoundary extends Component<Props, State> {
     const reload = this.props.reload ?? (() => window.location.reload())
     return (
       <div className="empty" role="alert">
-        <p>Tally could not read its data on this device.</p>
+        <p>{brand.cannotRead}</p>
         <button type="button" className="detail-toggle" onClick={reload}>
           Reload
         </button>

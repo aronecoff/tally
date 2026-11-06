@@ -1,11 +1,13 @@
 import { useId, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
-import { supabase } from '../db/supabase'
+import { brand } from '../lib/brand'
+import { canSaveRules } from '../lib/ruleStore'
 import { EXAMPLES, MAX_COMMAND, hideExample, parseCommand, planCommand, rowParts, type Plan } from '../lib/commands'
 import { applyPlan, undoPlan, type Applied } from '../lib/commandRun'
 import { dayLabel, todayISO } from '../lib/dates'
 import { money } from '../lib/format'
+import { haptic } from '../lib/haptics'
 import { isRefund } from '../lib/ledger'
 import { Sheet, SheetActions } from './Sheet'
 
@@ -40,17 +42,6 @@ const SETTLE_MS = 400
 /** 'Sep 1' never splits across lines in a title. */
 const keepDates = (s: string) => s.replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g, '$1 $2')
 
-/** Rules are saved to the account, so a plan only promises one when signed in. */
-async function canSaveRules(): Promise<boolean> {
-  if (!supabase) return false
-  try {
-    const { data } = await supabase.auth.getSession()
-    return !!data.session
-  } catch {
-    return false
-  }
-}
-
 /**
  * Tell Tally: one line in, and a preview of exactly what would change. Nothing
  * is written until Apply, and Undo takes the change back. The phrasings are
@@ -58,7 +49,7 @@ async function canSaveRules(): Promise<boolean> {
  */
 export function CommandSheet({ categories, onClose }: Props) {
   return (
-    <Sheet kind="command" title="Tell Tally" onClose={onClose}>
+    <Sheet kind="command" title={brand.tell} onClose={onClose}>
       <CommandBody categories={categories} />
     </Sheet>
   )
@@ -127,6 +118,7 @@ function CommandBody({ categories }: { categories: Category[] }) {
     busy.current = true
     try {
       const applied = await applyPlan(plan)
+      haptic(applied.title ? 'warning' : 'success')
       // Part of a plan is named for what it did, and Undo takes back just that.
       const title = applied.title ?? plan.title
       setChanges((c) => [...c, { title, applied }])

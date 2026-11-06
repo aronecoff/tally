@@ -1,0 +1,29 @@
+/* Plainsum: the first-run sheet. Its rows are .sheet-row with a second line. The
+   sheet itself comes from sheet.css. @layer screens. Owner: public flavor. */
+
+@layer screens {
+  .path-row {
+    min-height: var(--row-2);
+  }
+
+  .path-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--s-3) 0;
+  }
+
+  .path-sub {
+    font-size: var(--fs-meta);
+    font-weight: var(--w-regular);
+    line-height: 1.35;
+    letter-spacing: 0;
+    color: var(--text-2);
+    text-wrap: pretty;
+  }
+
+  /* The category's name gets the room, the figure a fixed column. */
+  .sheet[data-sheet='first-run'] .field-line {
+    grid-template-columns: minmax(0, 1fr) 112px;
+  }
+}

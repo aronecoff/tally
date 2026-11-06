@@ -9,11 +9,29 @@
 // and press ⌘R.
 import SwiftUI
 
+private let liveSite = URL(string: "https://aronecoff.github.io/tally/")!
+
+#if DEBUG
+/// A simulator run can load a local build of the page, to try it before it ships.
+/// A release build has no way to load anything else.
+private let site = ProcessInfo.processInfo.environment["TALLY_WEB_URL"].flatMap(URL.init(string:)) ?? liveSite
+#else
+private let site = liveSite
+#endif
+
 @main
 struct TallyApp: App {
+    init() {
+        BudgetAlerts.shared.start()
+        AppLock.shared.start {
+            let theme = TallyTheme.saved
+            return CoverTheme(canvas: theme.canvas, ink: theme.ink, accent: theme.sage, style: theme.style)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-            WebView(url: URL(string: "https://aronecoff.github.io/tally/")!)
+            WebView(url: site)
                 .ignoresSafeArea()          // let the web app own the notch / home-bar insets
                 .statusBarHidden(false)
             // No .preferredColorScheme here: forcing .dark left cream status-bar

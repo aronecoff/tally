@@ -279,3 +279,135 @@ describe('Sheet: unsaved input is not lost by accident', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+/**
+ * The keyboard, by the numbers a WKWebView really reported on an iPhone simulator.
+ * The page makes room in more than one way as it settles, and 100dvh never moves,
+ * so what is left to fit in has to come from the visual viewport.
+ */
+describe('Sheet: above the keyboard', () => {
+  const FULL = { innerHeight: 874, height: 874, offsetTop: 0, scrollY: 0, scale: 1 }
+  /** innerHeight shrinks with the keyboard, and offsetTop repeats scrollY. */
+  const SHRUNK = { innerHeight: 504, height: 504, offsetTop: 370, scrollY: 370, scale: 1 }
+  /** Where it ends up after typing. */
+  const TYPED = { innerHeight: 806, height: 504, offsetTop: 68, scrollY: 68, scale: 1 }
+  /** Typing reports nearly the full height for a moment. */
+  const BLIP = { innerHeight: 806, height: 806, offsetTop: 68, scrollY: 68, scale: 1 }
+  /** A page panned inside a layout viewport that stayed put, as Safari does. */
+  const PANNED = { innerHeight: 874, height: 504, offsetTop: 100, scrollY: 0, scale: 1 }
+
+  let viewport: EventTarget & { height: number; offsetTop: number; scale: number }
+
+  function report(next: typeof FULL) {
+    Object.assign(viewport, { height: next.height, offsetTop: next.offsetTop, scale: next.scale })
+    Object.defineProperty(window, 'innerHeight', { value: next.innerHeight, configurable: true })
+    Object.defineProperty(window, 'scrollY', { value: next.scrollY, configurable: true })
+    act(() => {
+      viewport.dispatchEvent(new Event('resize'))
+    })
+  }
+
+  const backdrop = () => document.querySelector('.sheet-backdrop') as HTMLElement
+  const inset = () => backdrop().style.getPropertyValue('--kb')
+  const room = () => backdrop().style.getPropertyValue('--vvh')
+  const up = () => backdrop().hasAttribute('data-kb')
+
+  function open() {
+    render(
+      <Sheet kind="txn" title="T" onClose={() => {}}>
+        <input aria-label="Amount" />
+      </Sheet>,
+      { container: root },
+    )
+    return screen.getByLabelText('Amount') as HTMLInputElement
+  }
+
+  beforeEach(() => {
+    viewport = Object.assign(new EventTarget(), { height: 874, offsetTop: 0, scale: 1 })
+    vi.stubGlobal('visualViewport', viewport)
+    Object.defineProperty(window, 'innerHeight', { value: 874, configurable: true })
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+  })
+
+  it('changes nothing with no keyboard', () => {
+    open()
+    expect([inset(), room(), up()]).toEqual(['0px', '', false])
+  })
+
+  it('fits what is left when the page shrinks, where the old sum came to nothing', () => {
+    open()
+    report(SHRUNK)
+    expect([inset(), room(), up()]).toEqual(['0px', '504px', true])
+  })
+
+  it('counts the whole keyboard when the page scrolled, or the sheet ends up behind it', () => {
+    open()
+    report(TYPED)
+    expect([inset(), room(), up()]).toEqual(['302px', '504px', true])
+  })
+
+  it('still reads a page that really panned', () => {
+    open()
+    report(PANNED)
+    expect([inset(), room(), up()]).toEqual(['270px', '504px', true])
+  })
+
+  it('goes back to nothing when the keyboard does', () => {
+    open()
+    report(TYPED)
+    report(FULL)
+    expect([inset(), room(), up()]).toEqual(['0px', '', false])
+  })
+
+  it('ignores a pinch zoom', () => {
+    open()
+    report({ ...PANNED, scale: 2 })
+    expect([inset(), room(), up()]).toEqual(['0px', '', false])
+  })
+
+  it('does not grow for a moment of typing, which would throw away the scroll', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    open().focus()
+    report(TYPED)
+    report(BLIP)
+    expect(room()).toBe('504px')
+    expect(inset()).toBe('302px')
+    report(TYPED)
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(room()).toBe('504px')
+  })
+
+  it('takes more room once it has lasted, as when a taller keyboard gives way to a shorter one', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    open().focus()
+    report(TYPED)
+    report({ ...TYPED, height: 560 })
+    expect(room()).toBe('504px')
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(room()).toBe('560px')
+  })
+
+  it('gives the room back at once when nothing is being typed in', () => {
+    const field = open()
+    field.focus()
+    report(TYPED)
+    field.blur()
+    report(FULL)
+    expect([inset(), room(), up()]).toEqual(['0px', '', false])
+  })
+
+  it('keeps the field in view when the sheet gets shorter, and not when it does not', () => {
+    const field = open()
+    field.focus()
+    const reveal = vi.fn()
+    field.scrollIntoView = reveal
+    report(SHRUNK)
+    expect(reveal).toHaveBeenCalledTimes(1)
+    report(TYPED)
+    expect(reveal).toHaveBeenCalledTimes(1)
+  })
+})

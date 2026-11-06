@@ -1,11 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction, type TxType } from '../db/db'
+import type { AddPrefill } from '../lib/addIntent'
 import { todayISO, dayHeading, dayLabel } from '../lib/dates'
 import { guessCategoryName, isFixed, isRentCategory } from '../lib/categorize'
 import { dateMovedMark, rentRefile } from '../lib/bankRules'
 import { accountLabel, cleanMerchant, merchantInfo } from '../lib/merchants'
 import { money } from '../lib/format'
+import { haptic } from '../lib/haptics'
 import { isRefund } from '../lib/ledger'
 import { DOUBLE_TAP_MS, useArmed } from '../lib/useArmed'
 import { rovingKeys } from '../lib/pressable'
@@ -19,6 +21,8 @@ interface Props {
   categories: Category[]
   /** null = create new; a Transaction = edit existing. */
   initial: Transaction | null
+  /** A new row's fields, as asked for from outside the app (lib/addIntent). */
+  prefill?: AddPrefill
   onClose: () => void
   /** Sort queue: called after each row is settled, saved or deleted (App advances the queue). */
   onSaved?: () => void
@@ -53,7 +57,7 @@ function AcctText({ raw }: { raw: string }) {
  * The transaction sheet. The Sheet stays mounted while the form body is keyed
  * by the transaction, so the sort queue swaps rows without re-opening it.
  */
-export function TransactionSheet({ categories, initial, onClose, onSaved, onAdded, progress, remaining }: Props) {
+export function TransactionSheet({ categories, initial, prefill, onClose, onSaved, onAdded, progress, remaining }: Props) {
   return (
     <Sheet
       kind="txn"
@@ -65,6 +69,7 @@ export function TransactionSheet({ categories, initial, onClose, onSaved, onAdde
         key={initial?.id ?? 'new'}
         categories={categories}
         initial={initial}
+        prefill={prefill}
         onSaved={onSaved}
         onAdded={onAdded}
         more={!!progress && (remaining ?? 0) > 0}
@@ -113,16 +118,24 @@ function TxnLogo({ initial, categories }: { initial: Transaction; categories: Ca
   )
 }
 
+/** The category the words point at, if there is one to file under. */
+function guessedCategoryId(categories: Category[], note: string, type: TxType): number | null {
+  const guess = guessCategoryName(note, type)
+  const match = guess ? categories.find((c) => c.kind === type && c.name === guess) : undefined
+  return match?.id ?? null
+}
+
 interface FormProps {
   categories: Category[]
   initial: Transaction | null
+  prefill?: AddPrefill
   onSaved?: () => void
   onAdded?: (date: string) => void
   /** More rows follow in the sort queue: keep the sheet open after saving. */
   more: boolean
 }
 
-function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
+function TxnForm({ categories, initial, prefill, onSaved, onAdded, more }: FormProps) {
   const close = useSheetClose()
   const { opener, setReturnFocus } = useSheetFocusReturn()
   const formId = useId()
@@ -142,14 +155,16 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
   const [type, setType] = useState<TxType>(initial?.type ?? 'expense')
   // Two decimals from the start ('100.00', not '100'): the same value, shown
   // the way the rest of the app shows it.
-  const [amount, setAmount] = useState(initialAmount)
+  const [amount, setAmount] = useState(prefill?.amount ?? initialAmount)
   const [typedDate, setDate] = useState(initial?.date ?? todayISO())
   // The date the sheet opened with, held once, so a date-only edit counts as
   // unsaved (a new row's default is today at mount, not today at each render).
   const [date0] = useState(typedDate)
   const [dateTouched, setDateTouched] = useState(false)
-  const [pickedCategoryId, setPickedCategoryId] = useState<number | null>(initial?.categoryId ?? null)
-  const [note, setNote] = useState(initial?.note ?? '')
+  const [pickedCategoryId, setPickedCategoryId] = useState<number | null>(() =>
+    prefill ? guessedCategoryId(categories, prefill.note, 'expense') : (initial?.categoryId ?? null),
+  )
+  const [note, setNote] = useState(initial?.note ?? prefill?.note ?? '')
   const [account, setAccount] = useState(initial?.account ?? '')
   const [touchedCategory, setTouchedCategory] = useState(editing)
   // The user turned the category chip off (not a kind switch dropping it), now
@@ -256,9 +271,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
   // pass to apply it.
   function suggestCategory(nextNote: string, nextType: TxType) {
     if (touchedCategory) return
-    const guess = guessCategoryName(nextNote, nextType)
-    const match = guess ? categories.find((c) => c.kind === nextType && c.name === guess) : undefined
-    setPickedCategoryId(match?.id ?? null)
+    setPickedCategoryId(guessedCategoryId(categories, nextNote, nextType))
   }
 
   function changeType(next: TxType) {
@@ -328,6 +341,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
     // Left empty on purpose: never re-filed.
     const uncategorized = categoryId == null && clearedByUser.current
     let added = false
+    let saved = false
     setSaveErr(null)
     try {
       if (editing && initial?.id != null) {
@@ -360,6 +374,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
         if (stored && !(stored.deleted && !initial.deleted)) {
           // A hand-edit is authoritative: pin it so bank re-syncs never revert it.
           await db.transactions.update(initial.id, { ...patch, manual: true, updatedAt: now })
+          saved = true
         }
       } else {
         await db.transactions.add({
@@ -375,6 +390,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
           updatedAt: now,
         } as Transaction)
         added = true
+        saved = true
       }
     } catch {
       // Stay open with the typed values intact so nothing is lost.
@@ -382,6 +398,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
       setSaveErr(SAVE_ERR)
       return
     }
+    if (saved) haptic(more ? 'light' : 'success')
     if (added) onAdded?.(date)
     settle()
   }
@@ -408,6 +425,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
       setSaveErr('Could not delete. Try again.')
       return
     }
+    haptic('warning')
     if (next) setReturnFocus(next)
     // Sort queue: a delete settles this row as a save does, so move on.
     settle()
@@ -442,7 +460,7 @@ function TxnForm({ categories, initial, onSaved, onAdded, more }: FormProps) {
           type="text"
           placeholder="0"
           value={amount}
-          autoFocus={!editing}
+          autoFocus={!editing && !prefill?.amount}
           style={{ width: `${Math.max(amount.length, 1) + 0.15}ch` }}
           onChange={(e) => {
             // Strip anything but digits and a single decimal point (handles

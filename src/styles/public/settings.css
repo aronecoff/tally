@@ -1,0 +1,41 @@
+/* Plainsum: Settings' Acknowledgements and the row that leaves the app. The rows
+   come from sheet.css. @layer screens. Owner: public flavor. */
+
+@layer screens {
+  .sheet-link {
+    text-decoration: none;
+  }
+
+  .sheet-danger {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-2);
+  }
+
+  .ack-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-3);
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .ack-head::-webkit-details-marker {
+    display: none;
+  }
+
+  .ack[open] .chev {
+    transform: rotate(90deg);
+  }
+
+  .ack-text {
+    margin: var(--s-2) 0 0;
+    font-family: var(--font-ui);
+    font-size: var(--fs-micro);
+    line-height: 1.45;
+    color: var(--text-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}

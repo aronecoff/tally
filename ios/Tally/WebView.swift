@@ -58,8 +58,11 @@ struct WebView: UIViewRepresentable {
         config.applicationNameForUserAgent = "TallyNative" // web app hides the "install" hint inside the app
         // The page posts "light" / "dark" whenever its theme changes.
         config.userContentController.add(WeakMessageHandler(context.coordinator), name: "theme")
+        let bridge = TallyBridge(app: url)
+        config.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: TallyBridge.name)
 
         let web = WKWebView(frame: .zero, configuration: config)
+        bridge.web = web
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
         web.allowsBackForwardNavigationGestures = true
@@ -274,27 +277,12 @@ struct WebView: UIViewRepresentable {
                let url = navigationAction.request.url,
                let scheme = url.scheme?.lowercased(),
                scheme == "http" || scheme == "https",
-               !isAppURL(url) {
+               !PageOrigin.isAppURL(url, app: appURL) {
                 UIApplication.shared.open(url)
                 decisionHandler(.cancel)
                 return
             }
             decisionHandler(.allow)
-        }
-
-        /// Same scheme, host and port as the app, under the app's path.
-        private func isAppURL(_ url: URL) -> Bool {
-            guard url.scheme?.lowercased() == appURL.scheme?.lowercased(),
-                  url.host?.lowercased() == appURL.host?.lowercased(),
-                  url.port == appURL.port else { return false }
-            func trimmed(_ p: String) -> String {
-                var p = p
-                while p.hasSuffix("/") { p.removeLast() }
-                return p
-            }
-            let base = trimmed(appURL.path)
-            let path = trimmed(url.path)
-            return path == base || path.hasPrefix(base + "/")
         }
 
         // ---- Resilience ---------------------------------------------------------

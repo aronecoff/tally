@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { RootBoundary } from './components/RootBoundary'
+import { brand } from './lib/brand'
 import { reloadOnUpdate } from './lib/swUpdate'
 
 // A new deploy reloads the page once nothing is being edited (lib/swUpdate).
@@ -21,7 +22,7 @@ function showReload() {
   box.className = 'empty'
   box.setAttribute('role', 'alert')
   const p = document.createElement('p')
-  p.textContent = 'Tally could not read its data on this device.'
+  p.textContent = brand.cannotRead
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'detail-toggle'

@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useSyncExternalStore } from 'reac
  * Refresh). Sheet.tsx registers each open sheet here.
  */
 
-export type SheetKind = 'txn' | 'account' | 'bank' | 'settings' | 'command'
+export type SheetKind = 'txn' | 'account' | 'bank' | 'settings' | 'command' | 'first-run' | 'import' | 'backups'
 
 export interface Entry {
   id: string

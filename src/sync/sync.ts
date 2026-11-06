@@ -183,7 +183,9 @@ function acctToRemote(a: Account, userId: string) {
     sort_order: Math.round(finite(a.sortOrder)),
     archived: !!a.archived,
     deleted: !!a.deleted,
-    source_said: a.sourceSaid ?? null,
+    // Flip sign rides inside the connector's record, because every device's sync
+    // has to read the figure the same way or each would undo the other's balance.
+    source_said: a.sourceSaid ? { ...a.sourceSaid, ...(a.flipSign ? { flipSign: true } : {}) } : null,
     updated_at: iso(finite(a.updatedAt)),
   }
 }
@@ -205,6 +207,19 @@ function saidFromRemote(v: unknown): SourceSaid | undefined {
   const balance = Number(x.balance)
   if (typeof x.institution !== 'string' || typeof x.name !== 'string' || !isAccountType(x.type) || !Number.isFinite(balance)) return undefined
   return { institution: x.institution, name: x.name, type: x.type, balance }
+}
+
+/** Whether a cloud `source_said` says the account reads the other way round. */
+function flipFromRemote(v: unknown): boolean | undefined {
+  let o = v
+  if (typeof o === 'string') {
+    try {
+      o = JSON.parse(o)
+    } catch {
+      return undefined
+    }
+  }
+  return o && typeof o === 'object' && (o as { flipSign?: unknown }).flipSign === true ? true : undefined
 }
 
 /**
@@ -247,6 +262,7 @@ function acctFromRemote(r: Row, local?: Account): Account {
     deleted: !!r.deleted,
     // A cloud without the column says nothing: this device's own record stays.
     sourceSaid: r.source_said === undefined ? local?.sourceSaid : saidFromRemote(r.source_said),
+    flipSign: r.source_said === undefined ? local?.flipSign : flipFromRemote(r.source_said),
     updatedAt: ms(r.updated_at),
   }
 }
@@ -312,6 +328,7 @@ function syncedFields(a: Account): Omit<Account, 'id' | 'uid' | 'rowsSay'> {
     archived: a.archived,
     deleted: a.deleted,
     sourceSaid: a.sourceSaid,
+    flipSign: a.flipSign,
     updatedAt: a.updatedAt,
   }
 }
@@ -529,6 +546,7 @@ async function dedupeConnectorAccounts(): Promise<void> {
       deleted: list.some((a) => a.deleted),
       // The connector's record goes with the fields it is read against.
       sourceSaid: newest.sourceSaid,
+      flipSign: newest.flipSign,
     }
     const same = (k: string, v: unknown) =>
       k === 'archived' || k === 'deleted'
@@ -1195,12 +1213,29 @@ export async function signOutSync(opts: { confirmed?: boolean } = {}): Promise<S
   return { ok: true, local }
 }
 
+/** Where auth-js stores the session. */
+function sessionKeys(): string[] {
+  const named = (supabase?.auth as unknown as { storageKey?: unknown })?.storageKey
+  return typeof named === 'string' ? [named] : Object.keys(localStorage).filter((k) => /^sb-.+-auth-token$/.test(k))
+}
+
+/**
+ * This device is signed in, whether or not the cloud can be reached now. It reads
+ * what is stored: asked offline with an expired token, auth-js answers with no session.
+ */
+export function hasCloudSession(): boolean {
+  if (!supabase) return false
+  try {
+    return sessionKeys().some((k) => localStorage.getItem(k) != null)
+  } catch {
+    return false // storage blocked: there is no session to read
+  }
+}
+
 /** Remove the stored session by hand: auth-js's own removal needs the server. */
 function dropStoredSession(): void {
-  const named = (supabase?.auth as unknown as { storageKey?: unknown })?.storageKey
   try {
-    const keys = typeof named === 'string' ? [named] : Object.keys(localStorage).filter((k) => /^sb-.+-auth-token$/.test(k))
-    for (const k of keys) for (const suffix of ['', '-code-verifier', '-user']) localStorage.removeItem(k + suffix)
+    for (const k of sessionKeys()) for (const suffix of ['', '-code-verifier', '-user']) localStorage.removeItem(k + suffix)
   } catch {
     /* storage blocked */
   }

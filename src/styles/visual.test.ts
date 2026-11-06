@@ -68,7 +68,11 @@ describe('B71: a sheet clears the keyboard on wide screens too', () => {
     const backdrop = decls(sheetCss, '.sheet-backdrop[data-kb]', DESK)
     expect(backdrop['align-items']).toBe('flex-end')
     expect(backdrop['padding-bottom']).toMatch(/var\(--kb\)/)
-    expect(decls(sheetCss, '.sheet-backdrop[data-kb] .sheet', DESK)['max-height']).toMatch(/var\(--kb\)/)
+    expect(decls(sheetCss, '.sheet-backdrop[data-kb] .sheet', DESK)['max-height']).toMatch(/var\(--vvh/)
+  })
+
+  it('takes its height from what the keyboard leaves, since 100dvh does not move for it', () => {
+    expect(decls(sheetCss, '.sheet')['max-height']).toMatch(/var\(--vvh, 100dvh\)/)
   })
 })
 

@@ -2,7 +2,10 @@ import { useId, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Account, type AccountType } from '../db/db'
 import { saidFromRow } from '../lib/accountEdits'
+import { setFlipSign } from '../lib/accountMerge'
+import { brand } from '../lib/brand'
 import { ago } from '../lib/dates'
+import { haptic } from '../lib/haptics'
 import { splitMask } from '../lib/merchants'
 import { rovingKeys } from '../lib/pressable'
 import { TIERS } from '../lib/tiers'
@@ -10,6 +13,7 @@ import { useArmed } from '../lib/useArmed'
 import { Icon } from './Icon'
 import { Sheet, SheetActions } from './Sheet'
 import { useSheetClose, useSheetDirty } from './sheetStack'
+import { SwitchRow } from './SwitchRow'
 
 interface Props {
   /** null = add a new account; an Account = edit it. */
@@ -96,7 +100,10 @@ function AccountForm({ initial }: { initial: Account | null }) {
           // lasts until the next sync, and never claims a fresh one.
           if (!current?.liveSync) patch.lastUpdated = now
         }
-        if (Object.keys(patch).length > 0) await db.accounts.update(initial.id, { ...patch, updatedAt: now })
+        if (Object.keys(patch).length > 0) {
+          await db.accounts.update(initial.id, { ...patch, updatedAt: now })
+          haptic('success')
+        }
       } else {
         const maxOrder = (await db.accounts.toArray()).reduce((m, a) => Math.max(m, a.sortOrder), -1)
         await db.accounts.add({
@@ -109,6 +116,7 @@ function AccountForm({ initial }: { initial: Account | null }) {
           liveSync: false,
           sortOrder: maxOrder + 1,
         } as Account)
+        haptic('success')
       }
     } catch {
       busy.current = false
@@ -128,6 +136,7 @@ function AccountForm({ initial }: { initial: Account | null }) {
       setSaveErr('Could not delete. Try again.')
       return
     }
+    haptic('warning')
     close()
   }
 
@@ -188,11 +197,27 @@ function AccountForm({ initial }: { initial: Account | null }) {
       {current?.liveSync && (
         <p className="acct-live-note">
           <Icon name="repeat" size={13} />
-          Synced from {current.source === 'snaptrade' ? 'your brokerage' : 'your bank'} · updated {ago(current.lastUpdated)}.
+          Synced from {brand.sourceNoun(current.source)} · updated {ago(current.lastUpdated)}.
           <br />
           A name or type set here stays; a balance edited here lasts until the next sync. Deleting hides the
           account from net worth until you restore it under Connections.
         </p>
+      )}
+      {current?.liveSync && (
+        <>
+          <div className="sheet-group">
+            <SwitchRow
+              icon="repeat"
+              label="Flip sign"
+              on={!!current.flipSign}
+              onChange={(on) => {
+                setSaveErr(null)
+                setFlipSign(current.id!, on).catch(() => setSaveErr('Could not save. Try again.'))
+              }}
+            />
+          </div>
+          <p className="sheet-note">For a bank that reports this balance the wrong way round.</p>
+        </>
       )}
 
       <div className="field-group">

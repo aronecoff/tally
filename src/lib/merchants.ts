@@ -6,35 +6,34 @@
  * merchant's own order/receipt page, which is where the purchased items live.
  */
 
+import { logoFor, orderFor, searchFor } from './merchantLinks'
+
 interface Brand {
   match: RegExp
   name: string
   domain: string
-  /** Where this merchant shows your order/purchase history, if they have one. */
-  orderUrl?: string
-  orderLabel?: string
 }
 
 // Tested against the RAW lowercased descriptor (before cleaning), so processor
 // codes like "amzn" still match. First match wins.
 const BRANDS: Brand[] = [
-  { match: /amzn|amazon/, name: 'Amazon', domain: 'amazon.com', orderUrl: 'https://www.amazon.com/gp/css/order-history', orderLabel: 'See your Amazon orders' },
-  { match: /apple\.com|apple ?bill|itunes/, name: 'Apple', domain: 'apple.com', orderUrl: 'https://reportaproblem.apple.com', orderLabel: 'See your Apple purchases' },
-  { match: /paypal/, name: 'PayPal', domain: 'paypal.com', orderUrl: 'https://www.paypal.com/myaccount/activities/', orderLabel: 'See your PayPal activity' },
+  { match: /amzn|amazon/, name: 'Amazon', domain: 'amazon.com' },
+  { match: /apple\.com|apple ?bill|itunes/, name: 'Apple', domain: 'apple.com' },
+  { match: /paypal/, name: 'PayPal', domain: 'paypal.com' },
   { match: /venmo/, name: 'Venmo', domain: 'venmo.com' },
-  { match: /target(\.com| |$|\b)/, name: 'Target', domain: 'target.com', orderUrl: 'https://www.target.com/orders', orderLabel: 'See your Target orders' },
-  { match: /walmart|wal-mart/, name: 'Walmart', domain: 'walmart.com', orderUrl: 'https://www.walmart.com/orders', orderLabel: 'See your Walmart orders' },
-  { match: /costco/, name: 'Costco', domain: 'costco.com', orderUrl: 'https://www.costco.com/OrderStatusCmd', orderLabel: 'See your Costco orders' },
+  { match: /target(\.com| |$|\b)/, name: 'Target', domain: 'target.com' },
+  { match: /walmart|wal-mart/, name: 'Walmart', domain: 'walmart.com' },
+  { match: /costco/, name: 'Costco', domain: 'costco.com' },
   { match: /whole ?foods|wfm/, name: 'Whole Foods', domain: 'wholefoodsmarket.com' },
   { match: /trader ?joe/, name: "Trader Joe's", domain: 'traderjoes.com' },
   { match: /safeway/, name: 'Safeway', domain: 'safeway.com' },
   { match: /netflix/, name: 'Netflix', domain: 'netflix.com' },
   { match: /spotify/, name: 'Spotify', domain: 'spotify.com' },
-  { match: /doordash|dd \*/, name: 'DoorDash', domain: 'doordash.com', orderUrl: 'https://www.doordash.com/orders', orderLabel: 'See your DoorDash orders' },
-  { match: /uber ?eats/, name: 'Uber Eats', domain: 'ubereats.com', orderUrl: 'https://www.ubereats.com/orders', orderLabel: 'See your Uber Eats orders' },
+  { match: /doordash|dd \*/, name: 'DoorDash', domain: 'doordash.com' },
+  { match: /uber ?eats/, name: 'Uber Eats', domain: 'ubereats.com' },
   { match: /uber/, name: 'Uber', domain: 'uber.com' },
   { match: /lyft/, name: 'Lyft', domain: 'lyft.com' },
-  { match: /instacart|ic\* /, name: 'Instacart', domain: 'instacart.com', orderUrl: 'https://www.instacart.com/store/account/orders', orderLabel: 'See your Instacart orders' },
+  { match: /instacart|ic\* /, name: 'Instacart', domain: 'instacart.com' },
   { match: /starbucks/, name: 'Starbucks', domain: 'starbucks.com' },
   { match: /chipotle/, name: 'Chipotle', domain: 'chipotle.com' },
   { match: /openai|chatgpt/, name: 'OpenAI', domain: 'openai.com' },
@@ -126,15 +125,12 @@ export function merchantInfo(raw: string): MerchantInfo {
   const trimmed = raw.trim()
   const lower = trimmed.toLowerCase()
   const brand = trimmed ? BRANDS.find((b) => b.match.test(lower)) : undefined
+  const order = brand ? orderFor(brand.name) : null
   return {
     name: brand ? brand.name : cleanMerchant(trimmed),
-    logoUrl: brand
-      ? `https://www.google.com/s2/favicons?domain=${brand.domain}&sz=128`
-      : null,
-    orderUrl: brand?.orderUrl ?? null,
-    orderLabel: brand?.orderLabel ?? null,
-    searchUrl: trimmed
-      ? `https://www.google.com/search?q=${encodeURIComponent(`"${trimmed}" charge`)}`
-      : null,
+    logoUrl: brand ? logoFor(brand.domain) : null,
+    orderUrl: order?.url ?? null,
+    orderLabel: order?.label ?? null,
+    searchUrl: trimmed ? searchFor(trimmed) : null,
   }
 }

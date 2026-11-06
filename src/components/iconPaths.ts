@@ -52,6 +52,9 @@ export const PATHS: Record<string, string> = {
 /** Chrome-only glyphs (never offered as a category icon). */
 export const UI_PATHS: Record<string, string> = {
   x: 'M6 6l12 12 M18 6 6 18',
+  undo: 'M8.5 4.5 4 9l4.5 4.5 M4 9h10.5a5.5 5.5 0 0 1 0 11H10',
+  bell: 'M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z M10 21a2.2 2.2 0 0 0 4 0',
+  calendar: 'M4.5 5.5h15a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z M3.5 10h17 M8 3v4 M16 3v4',
   lock: 'M6.5 10.5h11a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5',
   share: 'M12 3.5v11 M8 7.5l4-4 4 4 M8.5 10.5h-2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2',
   'arrow-up-right': 'M7 17 17 7 M9 7h8v8',

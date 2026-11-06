@@ -8,7 +8,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   // `.claude/worktrees/` holds full checkouts of this repo (agent worktrees).
   // Without this, every tool scanning the tree double-counts the whole codebase.
-  globalIgnores(['dist', '.claude']),
+  globalIgnores(['dist', 'dist-public', '.claude']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

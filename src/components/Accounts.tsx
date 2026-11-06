@@ -4,8 +4,11 @@ import { db, type Account, type AccountType } from '../db/db'
 import { money, toCents } from '../lib/format'
 import { ago } from '../lib/dates'
 import { splitMask } from '../lib/merchants'
-import { brokerageEnabled, connectBrokerage, restoreAccount } from '../lib/brokerage'
+import { canPickFile } from '../lib/native'
+import { restoreAccount } from '../lib/accountMerge'
+import { BrokerageRow, type ConnectNote } from './BrokerageRow'
 import { banksEnabled, subscribeBankWarnings, subscribeConnectorSync, syncAllConnectors } from '../lib/banks'
+import { bankRefreshable } from '../lib/bankTransport'
 import { BankConnectSheet } from './BankConnectSheet'
 import { AccountSheet } from './AccountSheet'
 import { squarify } from '../lib/treemap'
@@ -13,6 +16,7 @@ import { compactForms, fitTileLabel } from '../lib/mapLabel'
 import { TIERS } from '../lib/tiers'
 import { useSettle } from '../lib/motion'
 import { Icon } from './Icon'
+import { ImportSheet } from './ImportSheet'
 import { Money } from './Money'
 import { Skeleton } from './Skeleton'
 
@@ -69,9 +73,6 @@ const TICK_MS = 30_000
 type TimedErr = { text: string; at: number }
 /** Under 'Refresh balances': an error, or the 30-minute floor (drawn from timestamps). */
 type RowNote = ({ kind: 'err' } & TimedErr) | { kind: 'floor' }
-/** Under Connections: a connect result. `untilSync` holds it until the next
- *  successful sync ('Finish linking…'), otherwise a success fades after NOTE_MS. */
-type ConnectNote = { text: string; err: boolean; at: number; untilSync?: boolean }
 
 const EMPTY: Account[] = []
 
@@ -169,6 +170,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
   useEffect(() => subscribeBankWarnings(setBankWarn), [])
   const [editing, setEditing] = useState<Account | 'new' | null>(null)
   const [bankOpen, setBankOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   /** A manual refresh in flight, and where it was started. */
   const [busy, setBusy] = useState<'status' | 'row' | null>(null)
   /** The quiet auto refresh. Never disables anything. */
@@ -263,34 +265,6 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
     }
   }
 
-  async function runConnectBrokerage() {
-    setNote(null)
-    // Open the window synchronously inside the click gesture so it is not pop-up
-    // blocked after the awaited round-trip; fill in its URL once we have it.
-    const win = window.open('', '_blank')
-    // Cut the link back to Tally while the window is still our blank page, so the
-    // portal (or any page it passes through) cannot redirect this tab. Not
-    // 'noopener': that makes window.open return null and breaks the trick above.
-    if (win) win.opener = null
-    try {
-      const url = await connectBrokerage()
-      if (win) {
-        win.location.href = url
-        setNote({
-          text: 'Finish linking in the window that opened. Balances refresh when you come back.',
-          err: false,
-          at: Date.now(),
-          untilSync: true,
-        })
-      } else {
-        setNote({ text: 'Allow pop-ups for this site, then tap Connect a brokerage again.', err: true, at: Date.now() })
-      }
-    } catch (e) {
-      if (win) win.close()
-      setNote({ text: e instanceof Error ? e.message : 'Could not start the connection. Try again.', err: true, at: Date.now() })
-    }
-  }
-
   // App asks for the bank sheet through a prop (reconnect banner, Settings).
   useEffect(() => {
     if (!openBankConnect) return
@@ -301,7 +275,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
   // Quiet refresh whenever Accounts is shown: at most once a minute, never forced,
   // never disabling a control, never jumping tabs.
   useEffect(() => {
-    if (!active || !brokerageEnabled) return
+    if (!active || !banksEnabled) return
     const now = Date.now()
     if (now - lastAutoRefresh < AUTO_REFRESH_MS) return
     lastAutoRefresh = now
@@ -374,6 +348,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
   if (accounts === undefined) return <Skeleton variant="accounts" />
 
   const now = Date.now()
+  const canRefresh = banksEnabled && bankRefreshable(list)
   const newestLive = Math.max(0, ...list.filter((a) => a.liveSync).map((a) => a.lastUpdated || 0))
   const bankAt = readTime(BANK_FETCH_KEY)
   const bankLine = bankAt ? `Bank data updated ${ago(bankAt)}` : 'Bank data not fetched yet'
@@ -410,7 +385,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
             </button>
           </li>
         )}
-        {brokerageEnabled && (
+        {canRefresh && (
           <li className="row-sep">
             <button type="button" className="acct-row row-press" onClick={() => void runSync('row')}>
               <span className="cat-tile">
@@ -444,15 +419,16 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
             </button>
           </li>
         )}
-        {brokerageEnabled && (
+        <BrokerageRow setNote={setNote} />
+        {canPickFile() && (
           <li className="row-sep">
-            <button type="button" className="acct-row row-press" onClick={() => void runConnectBrokerage()}>
+            <button type="button" className="acct-row row-press" onClick={() => setImportOpen(true)}>
               <span className="cat-tile">
-                <Icon name="chart" size={18} />
+                <Icon name="download" size={18} />
               </span>
               <span className="acct-main">
-                <span className="acct-name">Connect a brokerage</span>
-                <span className="acct-sub">Balances via SnapTrade</span>
+                <span className="acct-name">Import a file</span>
+                <span className="acct-sub">A CSV, OFX or QFX from your bank or card</span>
               </span>
               <Icon name="chevron" size={14} className="chev acct-chev" />
             </button>
@@ -520,7 +496,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
                   ' owned'
                 )}
               </span>
-              {brokerageEnabled && (
+              {canRefresh && (
                 <button
                   type="button"
                   className={`nw-status${statusErr ? ' is-err' : ''}`}
@@ -695,6 +671,7 @@ export const Accounts = memo(function Accounts({ active, openBankConnect, onBank
       )}
 
       {editing && <AccountSheet initial={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {importOpen && <ImportSheet onClose={() => setImportOpen(false)} />}
       {bankOpen && (
         <BankConnectSheet
           onClose={() => setBankOpen(false)}

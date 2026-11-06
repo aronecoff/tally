@@ -16,6 +16,36 @@ npm run build      # type-check + production build + service worker
 npm run preview    # serve the production build
 ```
 
+## Two builds
+
+One codebase, two apps. The flavor comes from `VITE_FLAVOR` in the environment,
+never from an `.env` file.
+
+| | Personal (Tally) | Public (Plainsum) |
+|---|---|---|
+| Build | `npm run build` | `npm run build:public` |
+| Dev server | `npm run dev` | `npm run dev:public` |
+| Output | `dist`, deployed to gh-pages | `dist-public`, bundled into the iOS app |
+| Data | Supabase sync, connectors | On the device only |
+
+`scripts/flavor.ts` swaps whole modules at build time, so the public output holds
+none of the cloud code, even as dead code. Replacements live in
+`src/flavor/public/`, and `src/flavor/public/conformance.ts` keeps their types in
+step with what they replace. Shared code names no brand: visible names come from
+`src/lib/brand.ts`. The public name is written once, in `ios/PublicApp.xcconfig`:
+Xcode reads it for the Home Screen name and the Face ID prompt, and the web build
+reads it for every visible string, so a rename is that one line.
+
+- `npm run build:public` ends in `scripts/verify-public-bundle.mjs`, which fails on
+  anything personal or remote in `dist-public` and stamps the bundle for Xcode, with
+  the name it was built under. Xcode refuses a stamp that names another, and a bundle
+  that no longer hashes to its stamp. The personal words it looks for are in
+  `scripts/private-terms.local`, one regex a line. Git ignores that file, so a new
+  checkout needs a copy, and the gate stops without one.
+- `npm run parity` builds the merge base with `main` and this tree, and compares
+  the personal output: file list, `index.html`, CSS and every string literal.
+- `npx vitest run` runs both flavors. Public tests live under `src/flavor/public/`.
+
 ## What it does (v1)
 
 - **Budget tab** — month summary (spent / income / net), "left to spend"
@@ -23,8 +53,35 @@ npm run preview    # serve the production build
 - **Activity tab** — every transaction for the month; tap any row to edit/delete.
 - **Categories tab** — rename, re-emoji, recolor, and set a recurring monthly
   budget per category. Add/remove categories.
-- **Import tab** — paste or upload a bank/card CSV. Columns are auto-detected,
-  rows are auto-categorized by keyword, and you confirm before importing.
+- **Import a file** (Accounts, Settings) — a bank or card CSV, OFX or QFX. Columns
+  are read from the file and can be changed, folded to one row once they have read
+  every row, and every row is read by the rules a bank row gets. A row with no words
+  of its own takes its Type or Action cell, so an app's transfer reads as one. You see
+  the rows before anything is saved, and above the Import button the sheet states what
+  will be written: money in, money out, refunds, the largest row each way and the
+  number of rows, from the very rows the import writes, so a file read backwards shows
+  as a paycheck under largest money out. A file that does not prove which way its money
+  runs says why, first, and imports nothing until you say whether it is a bank account
+  or a card. A read that rests on one line or one column says so and lets you change
+  it, and a file of plain figures can be told which column says in or out. A card with
+  negative charges and no column of its own, in a month with a return and no payment,
+  reads as a bank account, because nothing in the file says otherwise: that return
+  shows under money in, and Card is one tap. Figures marked with a plus or a CR read as
+  money in, and turn the rest into money out, only when a fair share of the file
+  carries one, and that can be turned off. A row keeps an id built from the file, so
+  importing it again adds nothing, and one that looks like a row already here starts
+  unticked. Rows are matched as a whole file, so a row that repeats on a day comes in
+  even when its twin is here already. A file read the wrong way can be undone, here and
+  on the sheet's last screen, and importing it again brings its rows back.
+- **Export and backups** (Settings) — Export transactions hands over a CSV: the
+  share sheet in the iPhone app, a download anywhere else. The iPhone apps also keep
+  a rotating JSON copy in their Documents folder. A restore shows what it would do
+  first. In Tally it only ever adds what is missing, and `src/lib/backupPolicy.ts`
+  has no way to clear a row. In the public app the phone is the only copy, so a
+  restore replaces the ledger, after saving what is there.
+- **Widgets** — "Left to spend" on the Home Screen and the Lock Screen, in both iPhone
+  apps. It shows Home's own figures, as the page last handed them over, and says how
+  old they are. See `ios/README.md`.
 - **＋ (FAB)** — quick-add a transaction. The category is auto-suggested from
   the note as you type (e.g. "Trader Joe's" → Groceries).
 
@@ -39,13 +96,22 @@ src/
     format.ts      money formatting
     dates.ts       month math (local-time safe, no UTC off-by-one)
     csv.ts         CSV parser + column/amount/date guessing
+    ofx.ts         OFX and QFX statements
+    importFile.ts  a chosen file, read by what is in it
+    csvImport.ts   a file's rows as transactions, by the bank's rules
+    rowMatch.ts    one row of money, one row in the ledger
+    backup.ts      backup files, restore previews, the merge
+    autoBackup.ts  the automatic copy in the iPhone apps
+    homeFigures.ts the figures behind Home, for anything that shows them
+    widgetSnapshot.ts  Home's hero, handed to the iPhone apps' widgets
     categorize.ts  keyword → category rules (import + quick-add suggestions)
   components/
     Dashboard.tsx        budget view
     TransactionList.tsx  activity list
     TransactionSheet.tsx add/edit modal
     Categories.tsx       category + budget editor
-    ImportCsv.tsx        CSV import flow
+    ImportSheet.tsx      import flow
+    BackupSheet.tsx      backups and restore
   App.tsx          shell: month nav, tabs, modal wiring
 ```
 
@@ -90,6 +156,10 @@ credit (`legacyInferTier`), so a redeploy sends every account the same balance
 as before and moves no net worth. To settle the sign for good, call the `raw`
 action on a card with a known balance (owed, and in credit), then replace that
 with one rule for every card.
+
+The public app reads SimpleFIN on the device, so the same rules live again in
+`src/lib/simplefinNormalize.ts`. `simplefinNormalize.test.ts` runs both over a table
+of invented accounts and fails if they differ. Change them together.
 
 ### Personal categorization rules
 

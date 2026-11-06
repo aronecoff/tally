@@ -1,3 +1,5 @@
+import { rentDatingOn } from './prefs'
+
 /**
  * How a bank feed row is read: money movement (dropped), spending, income, or a
  * refund. Pure: no storage and no network, so the app, the tests and a replay of
@@ -93,11 +95,16 @@ export function isoFromUnix(sec: number): string {
  */
 export const RENT_EARLY_FROM_DAY = 20
 
-/** The date a rent payment made on `iso` counts on. */
-export function rentDate(iso: string): string {
+/** The day the rule puts a rent payment made on `iso`, whether or not it is on. */
+function rentDay(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number)
   if (d < RENT_EARLY_FROM_DAY) return iso
   return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+}
+
+/** The date a rent payment made on `iso` counts on. With the rule off, that day itself. */
+export function rentDate(iso: string): string {
+  return rentDatingOn() ? rentDay(iso) : iso
 }
 
 /**
@@ -117,7 +124,9 @@ export function rentRedate(
 ): string | null {
   if (wasRent === isRent) return null
   if (!(t.uid ?? '').startsWith('sf:') || t.type !== 'expense' || !(t.amount > 0)) return null
-  if (!isRent) return t.posted && t.posted !== t.date && rentDate(t.posted) === t.date ? t.posted : null
+  // By the rule itself, not the setting: a row Rent moved stays recognisable after
+  // the setting goes off, so it still goes home.
+  if (!isRent) return t.posted && t.posted !== t.date && rentDay(t.posted) === t.date ? t.posted : null
   const d = rentDate(t.date)
   return d !== t.date ? d : null
 }

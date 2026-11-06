@@ -776,6 +776,71 @@ describe('what the user set on a live account reaches the other devices', () => 
     expect(shown(C)).toMatchObject([{ name: 'Rewards card', type: 'credit', balance: 440 }])
   })
 
+  // Every device's bank sync writes the balance, so the setting has to reach them
+  // all: a device that did not know would write the figure back the other way.
+  const card = (balance: number) =>
+    [{ sourceAccountId: 'ACT-VS', institution: 'Test Bank', name: 'Rewards Visa (4444)', tier: 'credit' as const, balance, currency: 'USD' }]
+
+  it('flip sign set on one device holds through a bank fetch on the others', async () => {
+    const A = device()
+    await on(A, () => brokerage.applySyncedAccounts(card(420), 'simplefin', { archiveMissing: false }))
+    expect(shown(A)).toMatchObject([{ type: 'credit', balance: -420 }])
+    await syncOn(A)
+    const B = device()
+    await syncOn(B)
+    const { setFlipSign } = await import('../lib/accountMerge')
+    await on(B, async () => {
+      await setFlipSign((await db.accounts.toArray())[0].id!, true)
+      await sync.syncNow()
+    })
+    expect(cloudAccounts()[0]).toMatchObject({ balance: 420, source_said: { balance: -420, flipSign: true } })
+
+    await syncOn(A)
+    expect(shown(A)).toMatchObject([{ flipSign: true, balance: 420 }])
+    await on(A, () => brokerage.applySyncedAccounts(card(435), 'simplefin', { archiveMissing: false }))
+    expect(shown(A)).toMatchObject([{ type: 'credit', balance: 435 }])
+    await syncOn(A)
+
+    const C = device()
+    await syncOn(C)
+    await on(C, () => brokerage.applySyncedAccounts(card(440), 'simplefin', { archiveMissing: false }))
+    expect(shown(C)).toMatchObject([{ flipSign: true, balance: 440 }])
+    await syncOn(C)
+
+    // Turned off again, that reaches them too.
+    await syncOn(B)
+    await on(B, async () => {
+      await setFlipSign((await db.accounts.toArray())[0].id!, false)
+      await sync.syncNow()
+    })
+    expect('flipSign' in (cloudAccounts()[0].source_said as object)).toBe(false)
+    await syncOn(A)
+    await on(A, () => brokerage.applySyncedAccounts(card(445), 'simplefin', { archiveMissing: false }))
+    expect(shown(A)[0].flipSign).toBeUndefined()
+    expect(shown(A)).toMatchObject([{ balance: -445 }])
+  })
+
+  it('a row with no flip says nothing about it to the cloud', async () => {
+    const A = device()
+    await on(A, () => brokerage.applySyncedAccounts(card(420), 'simplefin', { archiveMissing: false }))
+    await syncOn(A)
+    expect(Object.keys(cloudAccounts()[0].source_said as object).sort()).toEqual(['balance', 'institution', 'name', 'type'])
+  })
+
+  it('a cloud without the column keeps the flip on the device that set it', async () => {
+    h.state.missingAccountColumns.add('source_said')
+    const A = device()
+    await on(A, () => brokerage.applySyncedAccounts(card(420), 'simplefin', { archiveMissing: false }))
+    await syncOn(A)
+    const { setFlipSign } = await import('../lib/accountMerge')
+    await on(A, async () => {
+      await setFlipSign((await db.accounts.toArray())[0].id!, true)
+      await sync.syncNow()
+      await sync.syncNow()
+    })
+    expect(shown(A)).toMatchObject([{ flipSign: true, balance: 420 }])
+  })
+
   it('a cloud without the column: the push goes without it, and the accounts still sync', async () => {
     h.state.missingAccountColumns.add('source_said')
     const A = device()

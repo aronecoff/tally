@@ -63,6 +63,8 @@ export function SheetActions({ children }: { children: ReactNode }) {
 }
 
 const FIELD = 'input, textarea, select'
+/** How long more room must last, with a field focused, before the sheet takes it. */
+const ROOM_SETTLE_MS = 200
 const INTERACTIVE = 'button, a, input, textarea, select, label'
 // Tab stops only: an unchosen option of a roving radio group carries tabindex -1
 // and is reached with the arrow keys, so it is never the trap's first or last.
@@ -232,22 +234,54 @@ export function Sheet({ kind, title, onClose, dirty, actions, headLeading, child
     return () => window.removeEventListener('keydown', onKey)
   }, [id, requestClose])
 
-  // Keyboard inset: keep the sheet (and its pinned actions) above the iOS
-  // keyboard. --kb is the part of the layout viewport the keyboard covers.
+  // Keyboard inset: keep the sheet (and its pinned actions) above the iOS keyboard.
+  // Measured in a WKWebView, the page makes room in more than one way, and they
+  // change as it settles: innerHeight can shrink with the keyboard (874 to 504) or
+  // not, and offsetTop then only repeats scrollY, which does not move this fixed
+  // layer. 100dvh stays at the full height throughout, so the sheet cannot be sized
+  // from it. --kb is what the keyboard covers of this layer, and --vvh, set only
+  // while the keyboard is up, is the height left to fit in.
+  //
+  // Typing can report the full height for a moment. A sheet that grew for it would
+  // clamp its body's scroll and lose the field being typed in, so room only comes
+  // back while a field has focus once it has lasted.
   useEffect(() => {
     const vv = window.visualViewport
     const bd = backdropRef.current
     if (!vv || !bd) return
+    let room = 0 // the --vvh in use, 0 with none
+    let settling: number | undefined
+    const typing = () => {
+      const t = document.activeElement
+      return t instanceof HTMLElement && t.matches(FIELD) && !!sheetRef.current?.contains(t) ? t : null
+    }
     const update = () => {
-      const raw = Math.abs(vv.scale - 1) > 0.01 ? 0 : window.innerHeight - vv.height - vv.offsetTop
-      const kb = raw > 60 ? Math.round(raw) : 0
+      window.clearTimeout(settling)
+      const zoomed = Math.abs(vv.scale - 1) > 0.01
+      const up = !zoomed && Math.max(window.innerHeight, vv.height + vv.offsetTop) - vv.height > 60
+      let height = up ? Math.round(vv.height) : 0
+      if (room && (height === 0 || height > room) && typing()) {
+        settling = window.setTimeout(() => {
+          room = 0
+          update()
+        }, ROOM_SETTLE_MS)
+        height = room
+      }
+      const panned = Math.max(0, vv.offsetTop - window.scrollY)
+      const kb = height ? Math.max(0, Math.round(window.innerHeight - height - panned)) : 0
       bd.style.setProperty('--kb', `${kb}px`)
-      bd.toggleAttribute('data-kb', kb > 0)
+      if (height) bd.style.setProperty('--vvh', `${height}px`)
+      else bd.style.removeProperty('--vvh')
+      bd.toggleAttribute('data-kb', height > 0)
+      const shorter = height > 0 && (room === 0 || height < room)
+      room = height
+      if (shorter) typing()?.scrollIntoView?.({ block: 'nearest' })
     }
     update()
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
     return () => {
+      window.clearTimeout(settling)
       vv.removeEventListener('resize', update)
       vv.removeEventListener('scroll', update)
     }

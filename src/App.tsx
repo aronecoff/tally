@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from './db/db'
 import { supabase } from './db/supabase'
 import { seedIfEmpty } from './db/seed'
+import { brand } from './lib/brand'
 import { currentMonth } from './lib/dates'
 import { useToday } from './lib/useToday'
 import { useTheme } from './lib/useTheme'
@@ -16,13 +17,21 @@ import { Categories } from './components/Categories'
 import { TransactionSheet } from './components/TransactionSheet'
 import { InstallBanner } from './components/InstallBanner'
 import { Account } from './components/Account'
+import { BackupSheet } from './components/BackupSheet'
+import { ImportSheet } from './components/ImportSheet'
 import { CommandSheet } from './components/CommandSheet'
+import { BrandGlyph } from './components/BrandGlyph'
 import { Icon } from './components/Icon'
 import { MonthSwitch } from './components/MonthSwitch'
 import { Skeleton, type SkeletonVariant } from './components/Skeleton'
 import { getStack, useOpenSheets } from './components/sheetStack'
 import { initSync, subscribeSync, type SyncSnapshot } from './sync/sync'
 import { syncAllConnectors, subscribeBankHealth, type BankHealth } from './lib/banks'
+import { startAddIntent, type AddPrefill } from './lib/addIntent'
+import { startAutoBackup } from './lib/autoBackup'
+import { startBudgetAlerts } from './lib/budgetAlerts'
+import { startWidgetSnapshot } from './lib/widgetSnapshot'
+import { FirstRun } from './flavor/slots'
 
 type Tab = 'home' | 'dashboard' | 'insights' | 'accounts' | 'transactions' | 'categories'
 
@@ -83,26 +92,6 @@ function readMonth(): string {
 const reducedMotion = () =>
   typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-/** The app icon's tally mark: four strokes and the accent diagonal. */
-function TallyGlyph() {
-  return (
-    <svg
-      className="head-glyph"
-      width={18}
-      height={18}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M7 5.75v12.5 M10.33 5.75v12.5 M13.67 5.75v12.5 M17 5.75v12.5" />
-      <path className="head-glyph-slash" d="M7 17.2 17 6.8" />
-    </svg>
-  )
-}
-
 /** Stable while categories load, so the memoised panes do not re-render. */
 const NO_CATEGORIES: Category[] = []
 
@@ -125,8 +114,12 @@ export default function App() {
   const [visited, setVisited] = useState<ReadonlySet<Tab>>(() => new Set([tabFromHash() ?? 'home']))
   const [editTxn, setEditTxn] = useState<Transaction | null>(null)
   const [adding, setAdding] = useState(false)
+  // Asked for from Siri or Shortcuts: its own sheet over whatever is open, so a half-made
+  // edit underneath is still there when it closes.
+  const [asked, setAsked] = useState<AddPrefill | null>(null)
   const [queue, setQueue] = useState<SortQueue | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [dataSheet, setDataSheet] = useState<'import' | 'backups' | null>(null)
   const [commandOpen, setCommandOpen] = useState(false)
   const [bankPrompt, setBankPrompt] = useState(false)
   const [budgetFocus, setBudgetFocus] = useState<{ key: string; n: number } | null>(null)
@@ -144,13 +137,19 @@ export default function App() {
 
   useEffect(() => subscribeBankHealth(setBankHealth), [])
   useEffect(() => subscribeSync(setSnap), [])
+  useEffect(() => startAddIntent(setAsked), [])
 
   // No [] default: undefined means "still loading", never "no categories".
   const categories = useLiveQuery(() => db.categories.filter((c) => !c.deleted).toArray(), [])
   const loaded = ready && categories !== undefined
 
   useEffect(() => {
-    seedIfEmpty().finally(() => setReady(true))
+    seedIfEmpty().finally(() => {
+      setReady(true)
+      startAutoBackup()
+      startWidgetSnapshot()
+      startBudgetAlerts()
+    })
     initSync()
     // Real-time connector sync: pull balances + transactions on boot, whenever the
     // window regains focus, and every few minutes while open. Each run syncs the
@@ -329,6 +328,7 @@ export default function App() {
     setEditTxn(null)
     setAdding(false)
   }, [])
+  const closeAsked = useCallback(() => setAsked(null), [])
   // A new row shows its own month (the + is global, and the month a screen
   // shows can be a past one). A month the switcher cannot reach yet (a future
   // date) leaves the view as it is.
@@ -464,7 +464,8 @@ export default function App() {
       <h1 className="head-brand">
         {/* The brand on the phone; 'Home' on the desktop, where the sidebar carries the brand. */}
         <span className="head-brand-mark">
-          <TallyGlyph /> Tally
+          <BrandGlyph />
+          {brand.mark}
         </span>
         <span className="head-brand-desk">Home</span>
       </h1>
@@ -531,7 +532,8 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="side-brand">
-          <TallyGlyph /> Tally
+          <BrandGlyph />
+          {brand.mark}
         </div>
         <nav className="side-nav" aria-label="Primary">
           {navButtons('side-tab')}
@@ -541,9 +543,9 @@ export default function App() {
             <Icon name="plus" size={16} />
             <span>Add transaction</span>
           </button>
-          <button type="button" className="side-tab" data-testid="command-btn" aria-label="Tell Tally" onClick={openCommand}>
+          <button type="button" className="side-tab" data-testid="command-btn" aria-label={brand.tell} onClick={openCommand}>
             <Icon name="prompt" size={19} />
-            <span className="tab-label">Tell Tally</span>
+            <span className="tab-label">{brand.tell}</span>
           </button>
           <button
             type="button"
@@ -563,7 +565,7 @@ export default function App() {
         <header className="app-head" ref={headRef}>
           <div className="head-left">{headLeft}</div>
           <div className="head-right">
-            <button type="button" className="head-btn" data-testid="command-btn" aria-label="Tell Tally" onClick={openCommand}>
+            <button type="button" className="head-btn" data-testid="command-btn" aria-label={brand.tell} onClick={openCommand}>
               <Icon name="prompt" size={21} />
             </button>
             <button type="button" className="head-btn" data-testid="add-txn" aria-label="Add transaction" onClick={openAdd}>
@@ -633,6 +635,10 @@ export default function App() {
         <TransactionSheet key="edit" categories={cats} initial={editTxn} onClose={closeTxn} onAdded={showMonthOf} />
       ) : null}
 
+      {loaded && asked && (
+        <TransactionSheet key={asked.n} categories={cats} initial={null} prefill={asked} onClose={closeAsked} onAdded={showMonthOf} />
+      )}
+
       {loaded && commandOpen && <CommandSheet categories={cats} onClose={closeCommand} />}
 
       {settingsOpen && (
@@ -642,8 +648,15 @@ export default function App() {
           setPref={setPref}
           onCategories={goCategories}
           onBankConnections={openBank}
+          onImport={() => setDataSheet('import')}
+          onBackups={() => setDataSheet('backups')}
         />
       )}
+
+      {dataSheet === 'import' && <ImportSheet onClose={() => setDataSheet(null)} />}
+      {dataSheet === 'backups' && <BackupSheet onClose={() => setDataSheet(null)} />}
+
+      <FirstRun onConnectBank={openBank} />
     </div>
   )
 }

@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-public
 dist-ssr
 *.local
 
@@ -16,6 +17,7 @@ dist-ssr
 xcuserdata/
 DerivedData/
 ios/build/
+ios/BuildNumber.xcconfig
 
 # Editor directories and files
 .vscode/*

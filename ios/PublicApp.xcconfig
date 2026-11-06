@@ -1,0 +1,13 @@
+// The public app's name, and the one place it is written. Xcode reads it for the
+// Home Screen name and the Face ID prompt, and the web build reads it for every
+// visible string (scripts/flavor.ts). Change it here to rename the app, then run
+// `npm run build:public`: Xcode refuses a bundle built under another name. Nothing
+// else needs to follow: the bundle id, the plainsum:// scheme and the storage
+// keys are not shown to anyone, so they stay.
+PUBLIC_APP_NAME = Fifthmark
+
+// The build number. The app and its widget read it here, so they cannot differ, and
+// `npm run build:public` writes the file below, so a new web bundle gets a new number
+// (scripts/build-number.mjs). 1 means none has been written, and the archive check refuses it.
+CURRENT_PROJECT_VERSION = 1
+#include? "BuildNumber.xcconfig"

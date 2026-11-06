@@ -1,0 +1,252 @@
+/* The import sheet's column pickers and preview, and the backups list. Settings'
+   reminder pickers are the same picker. The rows and fields come from controls.css
+   and sheet.css. @layer screens. */
+
+@layer screens {
+  .import-choose {
+    cursor: pointer;
+  }
+
+  .import-select {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--s-2);
+    min-width: 0;
+  }
+
+  .import-select select {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--ctl-lg);
+    font-size: var(--fs-input);
+    color: var(--text-1);
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .import-select select:focus {
+    outline: none;
+  }
+
+  .import-select select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: var(--r-sm);
+  }
+
+  .import-select svg {
+    flex: none;
+    color: var(--text-3);
+    transform: rotate(90deg);
+    pointer-events: none;
+  }
+
+  /* The pickers fold to one row once a file's columns have read every row. */
+  .import-columns > summary {
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .import-columns > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .import-columns > summary:active {
+    background: var(--fill-press);
+  }
+
+  .import-columns > summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .import-columns[open] > summary svg {
+    transform: rotate(-90deg);
+  }
+
+  .import-columns-read {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-2);
+  }
+
+  .import-rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow: hidden;
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+    border: var(--hairline-w) solid var(--hairline);
+  }
+
+  .import-rows li + li {
+    border-top: var(--hairline-w) solid var(--hairline);
+  }
+
+  .import-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: var(--s-3);
+    row-gap: 2px;
+    padding: var(--s-3) 14px;
+    font-size: var(--fs-row);
+  }
+
+  .import-tick-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    width: 100%;
+    border: 0;
+    background: none;
+    color: var(--text-1);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .import-tick-row:focus-visible {
+    outline-offset: -2px;
+  }
+
+  .import-tick-row:active {
+    background: var(--fill-press);
+  }
+
+  .import-tick-row[aria-checked='false'] .import-note,
+  .import-tick-row[aria-checked='false'] .num {
+    color: var(--text-3);
+  }
+
+  .import-tick {
+    grid-row: 1 / span 2;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--r-pill);
+    border: 1px solid var(--text-3);
+    color: var(--on-accent);
+  }
+
+  [aria-checked='true'] > .import-tick {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .import-more {
+    align-self: center;
+  }
+
+  .import-meta {
+    font-size: var(--fs-meta);
+    color: var(--text-3);
+  }
+
+  .import-note {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .import-day {
+    grid-column: 1 / -1;
+    font-size: var(--fs-meta);
+    color: var(--text-3);
+    overflow-wrap: anywhere;
+  }
+
+  .import-tick-row .import-day {
+    grid-column: 2 / -1;
+  }
+
+  /* What a file cannot settle comes first, and holds the import until it is answered. */
+  .import-ask {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-4) var(--s-4);
+    border: 1px solid var(--over-mark);
+    border-radius: var(--r-md);
+    background: var(--over-tint);
+  }
+
+  .import-ask-title {
+    margin: 0 0 var(--s-1);
+    font-size: var(--fs-row);
+    font-weight: var(--w-demi);
+    color: var(--text-1);
+  }
+
+  /* The footer's button, and what it will write held just above it. */
+  .import-foot {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+  }
+
+  .import-foot .btn-primary {
+    flex: none;
+  }
+
+  .import-sum {
+    padding: var(--s-3) 14px;
+    border-radius: var(--r-lg);
+    background: var(--surface-2);
+    border: var(--hairline-w) solid var(--hairline);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+  }
+
+  .import-sum-head,
+  .import-sum-line {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--s-3);
+  }
+
+  .import-sum-head {
+    margin: 0 0 var(--s-1);
+    font-weight: var(--w-demi);
+    color: var(--text-1);
+  }
+
+  .import-sum-lines {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+  }
+
+  .import-sum-line dt {
+    flex: none;
+    color: var(--text-2);
+  }
+
+  .import-sum-line dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--text-1);
+  }
+
+  .import-sum-row {
+    display: flex;
+    gap: var(--s-2);
+  }
+
+  /* The row's name is what a person checks a file by, so it gets a second line. */
+  .import-sum-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    min-width: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+}

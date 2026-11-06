@@ -1,6 +1,7 @@
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { db, type Category, type TxType } from '../db/db'
 import { money } from '../lib/format'
+import { haptic } from '../lib/haptics'
 import { useArmed } from '../lib/useArmed'
 import { Icon } from './Icon'
 import { CATEGORY_ICONS, ICON_LABELS } from './iconPaths'
@@ -439,6 +440,7 @@ function DeleteCategory({
     const target = fallback?.id ?? null
     await db.transactions.where('categoryId').equals(category.id).modify({ categoryId: target, updatedAt: Date.now() })
     await db.categories.update(category.id, { deleted: true, updatedAt: Date.now() })
+    haptic('warning')
     onDeleted()
   }
 

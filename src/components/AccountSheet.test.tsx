@@ -226,3 +226,39 @@ describe('a live account renamed or retyped here keeps it through the next sync'
     expect(await db.accounts.get(7)).toEqual(a)
   })
 })
+
+describe('Flip sign', () => {
+  const flip = () => screen.getByRole('switch', { name: 'Flip sign' })
+  const live = (p: Partial<Account> = {}) =>
+    acct(1, { type: 'credit', balance: -120, liveSync: true, source: 'simplefin', sourceAccountId: 'bank.test:c1', ...p })
+
+  it('is for live accounts: a typed one has the sign control', async () => {
+    const a = acct(1)
+    await db.accounts.add(a)
+    await open(a)
+    expect(screen.queryByRole('switch', { name: 'Flip sign' })).toBeNull()
+  })
+
+  it('starts off, and turning it on moves the balance at once, with no Save', async () => {
+    const a = live()
+    await db.accounts.add(a)
+    await open(a)
+    expect(flip().getAttribute('aria-checked')).toBe('false')
+    expect(note()).toBe('Credit on this card')
+
+    fireEvent.click(flip())
+    await waitFor(() => expect(flip().getAttribute('aria-checked')).toBe('true'))
+    expect(await db.accounts.get(1)).toMatchObject({ flipSign: true, balance: 120 })
+    await waitFor(() => expect(note()).toBe('Balance owed on this card'))
+  })
+
+  it('turns back off', async () => {
+    const a = live({ flipSign: true, balance: 120 })
+    await db.accounts.add(a)
+    await open(a)
+    fireEvent.click(flip())
+    await waitFor(() => expect(flip().getAttribute('aria-checked')).toBe('false'))
+    expect(await db.accounts.get(1)).toMatchObject({ balance: -120 })
+  })
+})
+

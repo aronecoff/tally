@@ -1,5 +1,6 @@
 import type { Category, Transaction, TxType } from '../db/db'
 import { dateMovedMark, rentRefile } from './bankRules'
+import { brand } from './brand'
 import { isFixed, isRentCategory } from './categorize'
 import { dayLabel, todayISO } from './dates'
 import { money } from './format'
@@ -26,7 +27,7 @@ import { getUserRules, type UserRule } from './userRules'
 
 export const EXAMPLES = ['move rent to Oct 1', 'file Amazon under Shopping', 'set Dining budget to 600', 'hide the $40 charge']
 
-const HELP = 'Tally did not understand that.'
+const HELP = brand.notUnderstood
 /** A command is one short line. Longer input is refused before any pattern runs on it. */
 export const MAX_COMMAND = 200
 /**
@@ -714,12 +715,12 @@ export function planCommand(cmd: Command, txns: readonly Transaction[], categori
   }
 
   if (cmd.kind === 'forget') {
-    if (!canRule) return { ok: false, message: 'Sign in to change your rules.' }
+    if (!canRule) return { ok: false, message: brand.signInRules }
     // Only the rules Tell Tally saved; the user's own rules are theirs to edit.
     const mine = userRules.filter((r) => r.priority <= TELL_PRIORITY)
     const named = matching({ text: cmd.text, label: cmd.label, all: true }, txns, categories).words
     const hits = mine.filter((r) => r.match.test(cmd.label) || r.match.test(cmd.text) || named.some((t) => r.match.test(t.note || '')))
-    if (hits.length === 0) return { ok: false, message: `There is no Tell Tally rule for "${cmd.label}".` }
+    if (hits.length === 0) return { ok: false, message: brand.noTellRule(cmd.label) }
     const name = titleCase(cmd.label)
     return {
       ok: true,
@@ -850,7 +851,7 @@ export function planCommand(cmd: Command, txns: readonly Transaction[], categori
         notes.push('No rule saved: these charges do not share a name the rule could follow.')
       }
     } else if (standing) {
-      notes.push('Sign in to have new charges from this merchant follow too.')
+      notes.push(brand.signInFollow)
     }
     let rows: Transaction[]
     let others: number
@@ -875,7 +876,7 @@ export function planCommand(cmd: Command, txns: readonly Transaction[], categori
       // A saved rule still files a pending charge when it posts; without one, wait.
       if (scope.some((t) => t.pending && t.categoryId !== cat.id)) return stillPending
       if (standing && !canRule) {
-        return { ok: false, message: `Already filed under ${cat.name}. Sign in to have new ${who} ${cat.kind === 'income' ? 'deposits' : 'charges'} follow it.` }
+        return { ok: false, message: brand.signInAlready(cat.name, who, cat.kind === 'income' ? 'deposits' : 'charges') }
       }
       return { ok: false, message: `Already filed under ${cat.name}.` }
     }

@@ -6,6 +6,7 @@ import { isFixed } from '../lib/categorize'
 import { cleanMerchant } from '../lib/merchants'
 import { oneOffRows, paceProjector } from '../lib/projection'
 import { awaitingPay } from '../lib/payday'
+import { brand } from '../lib/brand'
 import { beforePayday, OVERSPENT, SAVED } from '../lib/copy'
 import { shiftMonth, monthLabel, dayLabel } from '../lib/dates'
 import { useToday } from '../lib/useToday'
@@ -333,11 +334,7 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
         <section className="sect enter">
           <span className="hero-label">{isCurrent ? 'So far this month' : 'For the month'}</span>
           <span className="hero-state">No activity in {monthLabel(month)}.</span>
-          {isCurrent && (
-            <span className="hero-caption">
-              Insights appear as transactions sync.
-            </span>
-          )}
+          {isCurrent && <span className="hero-caption">{brand.insightsEmpty}</span>}
           {chart}
         </section>
       </div>

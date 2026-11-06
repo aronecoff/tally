@@ -1,15 +1,14 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
-import { monthShortLabel, dayLabel, shiftDayISO, shiftMonth } from '../lib/dates'
+import { dayLabel } from '../lib/dates'
 import { useToday } from '../lib/useToday'
-import { BILL_MONTHS, flexibleSpend, oneOffRows, paceProjector } from '../lib/projection'
-import { awaitingPay } from '../lib/payday'
-import { isFixed } from '../lib/categorize'
+import { homeBillsSince, homeDays, homeFigures, homeHero, homeHistoryFrom, homeLabel, type HomeRow as Row } from '../lib/homeFigures'
+import { brand } from '../lib/brand'
 import { cleanMerchant } from '../lib/merchants'
 import { isRefund } from '../lib/ledger'
-import { money, pct, toCents } from '../lib/format'
-import { rowState, budgetStatus, beforePayday, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET, BY_MONTH_END } from '../lib/copy'
+import { money, pct } from '../lib/format'
+import { rowState, budgetStatus, beforePayday, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET } from '../lib/copy'
 import { Icon } from './Icon'
 import { Money } from './Money'
 import { Pending } from './Pending'
@@ -28,18 +27,6 @@ interface Props {
   onSort?: () => void
   /** Open Budget with this category expanded. */
   onOpenCategory?: (key: string) => void
-}
-
-type Row = {
-  id: number | null
-  name: string
-  icon: string
-  spent: number
-  budget: number
-  projected: number
-  fixed: boolean
-  txnCount: number
-  pendingCount: number
 }
 
 const EMPTY: Transaction[] = []
@@ -95,22 +82,13 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   // day (and month) on resume instead of waiting for a tab change.
   const today = useToday()
   const month = today.slice(0, 7)
-  const [yy, mm, dd] = today.split('-').map(Number)
-  const daysInMonth = new Date(yy, mm, 0).getDate()
-  const dayOfMonth = dd
+  const { dayOfMonth, daysInMonth } = homeDays(today)
 
   // No [] defaults: undefined means "still loading" and shows the skeleton, so
   // Home never flashes $0.00 or a false 'all on track'.
   const liveMonth = useLiveQuery(() => db.transactions.where('date').startsWith(month).toArray(), [month])
-  // Recurring bills look back 100 days. The forecast's bill history (oneOffRows)
-  // needs the BILL_MONTHS whole months before this one, exactly as Budget
-  // queries them: after about the 9th, 100 days stops short of the first of
-  // them, and Home took a bill Budget counted once at daily pace.
-  const since = useMemo(() => shiftDayISO(today, -100), [today])
-  const from = useMemo(() => {
-    const billsFrom = `${shiftMonth(month, -BILL_MONTHS)}-01`
-    return billsFrom < since ? billsFrom : since
-  }, [month, since])
+  const since = useMemo(() => homeBillsSince(today), [today])
+  const from = useMemo(() => homeHistoryFrom(today), [today])
   const liveRecent = useLiveQuery(() => db.transactions.where('date').aboveOrEqual(from).toArray(), [from])
 
   const monthTxns = useWhileActive(liveMonth, active)
@@ -123,113 +101,10 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     return m
   }, [cats])
 
-  const d = useMemo(() => {
-    // Summed in whole cents and divided once, so a category that is exactly
-    // its budget (or exactly refunded to zero) is exactly that, never
-    // '$0.00 over' or '−$0.00' from float residue.
-    let incomeC = 0
-    let spendC = 0
-    const byCatC = new Map<number | null, number>()
-    // One-off rows count once, never at daily pace: big rows, refunds and
-    // monthly bills (projection.oneOffRows, from the last few months' rows).
-    const lumpByCatC = new Map<number | null, number>()
-    const once = oneOffRows(monthTxns ?? EMPTY, recentTxns ?? EMPTY, month)
-    const countByCat = new Map<number | null, number>()
-    const pendingByCat = new Map<number | null, number>()
-    const dailyC = new Array(daysInMonth).fill(0)
-    for (const t of monthTxns ?? EMPTY) {
-      if (t.deleted) continue
-      const c = toCents(t.amount)
-      if (t.type === 'income') {
-        incomeC += c
-      } else {
-        spendC += c
-        byCatC.set(t.categoryId, (byCatC.get(t.categoryId) ?? 0) + c)
-        if (once.has(t)) lumpByCatC.set(t.categoryId, (lumpByCatC.get(t.categoryId) ?? 0) + c)
-        countByCat.set(t.categoryId, (countByCat.get(t.categoryId) ?? 0) + 1)
-        if (t.pending) pendingByCat.set(t.categoryId, (pendingByCat.get(t.categoryId) ?? 0) + 1)
-        const day = Number(t.date.slice(8, 10))
-        if (day >= 1 && day <= daysInMonth) dailyC[day - 1] += c
-      }
-    }
-    const income = incomeC / 100
-    const spend = spendC / 100
-    const spentIn = (id: number | null) => (byCatC.get(id) ?? 0) / 100
-    const lumpIn = (id: number | null) => (lumpByCatC.get(id) ?? 0) / 100
-    const daily = dailyC.map((c: number) => c / 100)
-    // All pace math lives in lib/projection.ts (shared with the Budget tab).
-    const p = paceProjector(dayOfMonth, daysInMonth)
-    const divisor = dayOfMonth > 0 ? dayOfMonth : daysInMonth
-
-    const expenseCats = cats.filter((c) => c.kind === 'expense' && !c.deleted)
-    const catSpends = expenseCats.map((c) => ({
-      name: c.name,
-      spent: spentIn(c.id!),
-      budget: c.monthlyBudget || 0,
-      fixed: isFixed(c),
-      lump: lumpIn(c.id!),
-    }))
-    const rows: Row[] = expenseCats
-      .map((c) => {
-        const spent = spentIn(c.id!)
-        const budget = c.monthlyBudget || 0
-        const fixed = isFixed(c)
-        return {
-          id: c.id!,
-          name: c.name,
-          icon: c.icon,
-          spent,
-          budget,
-          projected: p.forCategory(c.name, spent, budget, { fixed, lump: lumpIn(c.id!) }),
-          fixed,
-          txnCount: countByCat.get(c.id!) ?? 0,
-          pendingCount: pendingByCat.get(c.id!) ?? 0,
-        }
-      })
-      // A category with no budget stays while it has rows this month, a net
-      // refund included: dropped, the rows no longer added up to Spending.
-      .filter((r) => r.budget > 0 || r.spent !== 0 || r.txnCount > 0)
-    const uncat = spentIn(null)
-    const uncatLump = lumpIn(null)
-    // Uncategorized is listed whenever rows sit in it, even when a refund
-    // there outweighs the purchases: the purchases still need a category, and
-    // this row is Home's way into the sort queue.
-    if (uncat !== 0 || (countByCat.get(null) ?? 0) > 0) {
-      rows.push({
-        id: null,
-        name: 'Uncategorized',
-        icon: 'tag',
-        spent: uncat,
-        budget: 0,
-        projected: p.forCategory('Uncategorized', uncat, 0, { fixed: false, lump: uncatLump }),
-        fixed: false,
-        txnCount: countByCat.get(null) ?? 0,
-        pendingCount: pendingByCat.get(null) ?? 0,
-      })
-    }
-    rows.sort((a, b) => b.spent - a.spent)
-
-    const totalBudget = expenseCats.reduce((s, c) => s + toCents(c.monthlyBudget || 0), 0) / 100
-    const maxDaily = Math.max(1, ...daily)
-    // The one-offs outside fixed bills: what the projection takes once.
-    const flexLumpC = catSpends.reduce((s, c) => (c.fixed ? s : s + toCents(c.lump)), toCents(uncatLump))
-    return {
-      income,
-      spend,
-      net: (incomeC - spendC) / 100,
-      daily,
-      maxDaily,
-      rows,
-      totalBudget,
-      projectedTotal: p.monthEnd(catSpends, spend, uncatLump),
-      canProject: p.canProject,
-      // Flexible spending at its daily pace: rent on the 1st made this read
-      // ~$913 a day, and a refund or a monthly bill is not a day's spending.
-      avgPerDay: Math.round((flexibleSpend(catSpends, spend) - flexLumpC / 100) / divisor),
-      // Before payday (lib/payday.ts, shared with Budget and Insights).
-      awaitingIncome: awaitingPay(month, monthTxns ?? EMPTY, recentTxns ?? EMPTY, cats),
-    }
-  }, [monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth])
+  const d = useMemo(
+    () => homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth }),
+    [monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth],
+  )
 
   // Recurring bills: an expense whose merchant recurs across ≥2 distinct months.
   const bills = useMemo(() => {
@@ -303,12 +178,8 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   const awaitingIncome = d.awaitingIncome
   const overIncome = inTotal > 0 && outTotal > inTotal && !awaitingIncome
   const waitWord = beforePayday(inTotal)
-  const overBudget = d.totalBudget > 0 && d.spend > d.totalBudget
-  const overPaceBudget = d.totalBudget > 0 && !overBudget && d.canProject && d.projectedTotal > d.totalBudget
-  const budgetPct = d.totalBudget > 0 ? Math.min(100, (d.spend / d.totalBudget) * 100) : 0
-  const budgetState = overBudget ? 'over' : overPaceBudget ? 'pace' : 'ok'
-  const pacePct = daysInMonth > 0 ? (dayOfMonth / daysInMonth) * 100 : 0
-  const hasBudget = d.totalBudget > 0
+  const hero = homeHero(d, dayOfMonth, daysInMonth)
+  const { overBudget, overPaceBudget, budgetPct, budgetState, pacePct, hasBudget } = hero
   const hasActivity = inTotal > 0 || outTotal > 0
 
   // What needs you: over budget, likely to go over, or unfiled, plus (while the
@@ -425,7 +296,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     return `Nothing yet in ${listed} · ${money(ready, { trim: true })} ready`
   })()
 
-  const heroLabel = `${monthShortLabel(month)} · day ${dayOfMonth} of ${daysInMonth}`
+  const heroLabel = homeLabel(month, dayOfMonth, daysInMonth)
 
   return (
     <div className={`dash-home${detail ? '' : ' is-calm'}`}>
@@ -436,24 +307,22 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
           {hasBudget ? (
             <>
               <span className={`hero-state ${budgetState}`}>
-                {overBudget ? 'Over budget' : overPaceBudget ? 'Likely to go over' : 'On track'}
+                {hero.stateWord}
               </span>
               <div className="hero-fig">
-                <Money value={overBudget ? d.spend - d.totalBudget : d.totalBudget - d.spend} />
-                <span className="home-hero-unit"> {overBudget ? 'over' : 'left'}</span>
+                <Money value={hero.value} />
+                <span className="home-hero-unit"> {hero.unit}</span>
               </div>
               <div className="traj-bar home-hero-rail">
                 <div className={`traj-fill rail-fill ${budgetState}`} style={railP(budgetPct / 100)} />
                 <i className="traj-pace" style={{ left: `${pacePct}%` }} />
               </div>
               <span className="hero-caption num">
-                of {money(d.totalBudget, { trim: true })} budget
-                {d.canProject && !overBudget && (
+                {hero.budgetLine}
+                {hero.forecast && (
                   <>
                     {' · '}
-                    <span className="nowrap">
-                      ~{money(d.projectedTotal, { approx: true })} {BY_MONTH_END}
-                    </span>
+                    <span className="nowrap">{hero.forecast}</span>
                   </>
                 )}
               </span>
@@ -482,7 +351,10 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
               )}
             </>
           ) : (
-            <span className="hero-state">Nothing yet this month</span>
+            <>
+              <span className="hero-state">Nothing yet this month</span>
+              {brand.homeEmpty && <span className="hero-caption">{brand.homeEmpty}</span>}
+            </>
           )}
 
           {/* The contributors that explain the hero. */}
@@ -559,7 +431,8 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
             </ul>
           ) : (
             <div className="allgood">
-              <Icon name="check" size={16} /> All budgets on track. Nothing needs you.
+              <Icon name="check" size={16} />
+              {hasBudget ? ' All budgets on track. Nothing needs you.' : brand.allGoodNoBudget}
             </div>
           )}
         </section>

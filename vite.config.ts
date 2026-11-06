@@ -1,17 +1,33 @@
 import { configDefaults, defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { publicFlavor, readFlavor } from './scripts/flavor'
+
+// `VITE_FLAVOR=public` builds Plainsum (scripts/flavor.ts). Unset is the personal
+// build, which is what `npm run build` and the deploy path have always made.
+const isPublic = readFlavor() === 'public'
 
 // Deployed to GitHub Pages at aronecoff.github.io/tally/, so everything lives
 // under the /tally/ base path. (For a root-domain host like Vercel, set base '/'.)
-const base = '/tally/'
+// The public bundle is served from the root of the app's own scheme.
+const base = isPublic ? '/' : '/tally/'
 
 // https://vite.dev/config/
 export default defineConfig({
   base,
+  ...(isPublic && {
+    // .env.local exists here and Vite loads it in every mode: under this prefix
+    // none of it can enter the bundle, even through import.meta.env as a whole.
+    envPrefix: 'PLAINSUM_',
+    // Icons and the manifest belong to the PWA. The app has its own.
+    publicDir: false as const,
+    // Never `dist`: `npm run deploy` publishes that to gh-pages.
+    build: { outDir: 'dist-public', emptyOutDir: true },
+    cacheDir: 'node_modules/.vite-public',
+  }),
   plugins: [
     react(),
-    VitePWA({
+    isPublic ? publicFlavor() : VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       // Take over the moment a new build is installed. Without these a fresh
@@ -55,15 +71,25 @@ export default defineConfig({
     }),
   ],
   test: {
-    // `.claude/worktrees/` holds full checkouts of this repo (agent worktrees),
-    // so their copies of every *.test.ts would otherwise be discovered and run
-    // alongside the real ones — doubling the suite and letting a stale worktree
-    // fail `npm test` on main.
-    exclude: [...configDefaults.exclude, '.claude/**'],
     // Vitest stubs every CSS import to '' unless told otherwise. Tests that pin
     // layout rules jsdom cannot apply read a stylesheet's text with `?raw`.
     css: { include: [/\.css\?raw$/] },
     // One tab per test file: no Dexie notices across files (see the file).
     setupFiles: ['./src/test-setup.ts'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'personal',
+          // `.claude/worktrees/` holds full checkouts of this repo (agent worktrees),
+          // so their copies of every *.test.ts would otherwise be discovered and run
+          // alongside the real ones — doubling the suite and letting a stale worktree
+          // fail `npm test` on main.
+          exclude: [...configDefaults.exclude, '.claude/**', 'src/flavor/public/**'],
+        },
+      },
+      // The public modules swapped in, as a public build sees them.
+      { extends: true, plugins: [publicFlavor()], test: { name: 'public', include: ['src/flavor/public/**/*.test.{ts,tsx}'] } },
+    ],
   },
 })

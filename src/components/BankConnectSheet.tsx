@@ -1,5 +1,7 @@
 import { useId, useState } from 'react'
+import { bankClaimCopy } from '../lib/bankTransport'
 import { connectBank } from '../lib/banks'
+import { brand } from '../lib/brand'
 import { Icon } from './Icon'
 import { Sheet, SheetActions } from './Sheet'
 import { useSheetClose } from './sheetStack'
@@ -82,11 +84,12 @@ function BankConnectForm({ onResult }: Pick<Props, 'onResult'>) {
       // the plain retry line instead of a raw server message.
       const msg = e instanceof Error ? e.message : ''
       setErr(
-        /sign in/i.test(msg)
-          ? 'Sign in to Tally in Settings first, then connect.'
-          : /not configured/i.test(msg)
-            ? msg
-            : 'Could not connect. Check the token and try again.',
+        bankClaimCopy(msg) ??
+          (/sign in/i.test(msg)
+            ? brand.signInToConnect
+            : /not configured/i.test(msg)
+              ? msg
+              : 'Could not connect. Check the token and try again.'),
       )
       setBusy(false)
     }
@@ -102,10 +105,7 @@ function BankConnectForm({ onResult }: Pick<Props, 'onResult'>) {
         void connect()
       }}
     >
-      <p className="sheet-note">
-        Tally connects to your bank through SimpleFIN. Your bank login stays with SimpleFIN. Tally receives balances and
-        transactions only.
-      </p>
+      <p className="sheet-note">{brand.bankIntro}</p>
 
       <ol className="connect-steps">
         <li>
@@ -174,7 +174,7 @@ function BankConnectForm({ onResult }: Pick<Props, 'onResult'>) {
         </div>
       )}
 
-      <p className="connect-steps-foot">Read-only. Tally never sees your bank login.</p>
+      <p className="connect-steps-foot">{brand.bankFoot}</p>
 
       <SheetActions>
         <button type="submit" form={formId} className="btn-primary" disabled={busy || !token.trim()}>

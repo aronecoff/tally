@@ -6,11 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:public": "tsc -b && VITE_FLAVOR=public vite build && node scripts/verify-public-bundle.mjs && node scripts/build-number.mjs",
+    "archive:public": "sh ios/archive.sh",
+    "dev:public": "VITE_FLAVOR=public vite --port 5180 --strictPort",
+    "parity": "node scripts/personal-parity.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist --dotfiles",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:swift": "sh ios/PlainsumChecks/run.sh",
+    "test:ui": "sh ios/smoke.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",

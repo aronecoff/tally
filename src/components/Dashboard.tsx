@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { db, type Category, type Transaction } from '../db/db'
+import { brand } from '../lib/brand'
 import { money, toCents } from '../lib/format'
 import { isFixed } from '../lib/categorize'
 import { BILL_MONTHS, oneOffRows, paceProjector } from '../lib/projection'
@@ -501,7 +502,7 @@ export const Dashboard = memo(function Dashboard({
             )}
           </div>
           {data.rows.length === 0 && data.idle.length === 0 ? (
-            <p className="empty">Nothing tracked yet this month.</p>
+            <p className="empty">{brand.budgetEmpty}</p>
           ) : (
             <ul className="bud-list">
               {data.rows.map(row)}

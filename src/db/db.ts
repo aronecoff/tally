@@ -114,6 +114,10 @@ export interface Account {
    *  account. An institution, name or type that differs from it was set by the
    *  user (lib/accountEdits.ts), and the next sync leaves it as it is. */
   sourceSaid?: SourceSaid
+  /** The connector reports this account's balance the other way round: every
+   *  sync negates its figure before anything reads it (accountMerge.ts). Synced
+   *  inside `source_said`, so devices agree on which way the balance reads. */
+  flipSign?: boolean
   updatedAt: number
 }
 

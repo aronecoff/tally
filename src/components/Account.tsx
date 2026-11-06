@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { subscribeSync, signIn, signOutSync, syncNow, changePassword, type SyncSnapshot } from '../sync/sync'
 import { supabase } from '../db/supabase'
-import { banksEnabled } from '../lib/banks'
 import { ago } from '../lib/dates'
-import { rovingKeys } from '../lib/pressable'
 import type { ThemePref } from '../lib/useTheme'
 import { Icon } from './Icon'
 import { Sheet } from './Sheet'
+import { AlertRows, AppearanceControl, DataRows, LockRows, RentDating, ScreenRows } from './SettingsParts'
 import { useSheetClose } from './sheetStack'
 
 interface Props {
@@ -17,6 +16,10 @@ interface Props {
   onCategories: () => void
   /** Show Accounts with the bank sheet open (runs after the sheet has closed). */
   onBankConnections: () => void
+  /** Open the import sheet (runs after the sheet has closed). */
+  onImport: () => void
+  /** Open the backups sheet (runs after the sheet has closed). */
+  onBackups: () => void
 }
 
 /**
@@ -25,7 +28,7 @@ interface Props {
  * because Appearance still applies. The navigation rows close the sheet first
  * and navigate from its onClose, so two sheets are never open at once.
  */
-export function Account({ onClose, pref, setPref, onCategories, onBankConnections }: Props) {
+export function Account({ onClose, pref, setPref, onCategories, onBankConnections, onImport, onBackups }: Props) {
   const after = useRef<(() => void) | null>(null)
   return (
     <Sheet
@@ -44,22 +47,18 @@ export function Account({ onClose, pref, setPref, onCategories, onBankConnection
         afterRef={after}
         onCategories={onCategories}
         onBankConnections={onBankConnections}
+        onImport={onImport}
+        onBackups={onBackups}
       />
     </Sheet>
   )
 }
 
-const THEME_OPTIONS: { value: ThemePref; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-]
-
 interface BodyProps extends Omit<Props, 'onClose'> {
   afterRef: RefObject<(() => void) | null>
 }
 
-function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections }: BodyProps) {
+function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections, onImport, onBackups }: BodyProps) {
   const close = useSheetClose()
   const [snap, setSnap] = useState<SyncSnapshot | null>(null)
   const [email, setEmail] = useState('')
@@ -122,43 +121,9 @@ function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections
           ? `Synced ${ago(snap.lastSyncedAt)}`
           : 'Connected'
 
-  const appearance = (
-    <>
-      <span className="sheet-label" id="settings-appearance">Appearance</span>
-      <div className="seg" role="radiogroup" aria-labelledby="settings-appearance" onKeyDown={rovingKeys}>
-        {THEME_OPTIONS.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            className={pref === o.value ? 'seg-on' : ''}
-            role="radio"
-            aria-checked={pref === o.value}
-            tabIndex={pref === o.value ? 0 : -1}
-            onClick={() => setPref(o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </>
-  )
-
-  const screens = (
-    <div className="sheet-group">
-      <button type="button" className="sheet-row" onClick={() => go(onCategories)}>
-        <Icon name="tag" size={18} />
-        <span>Categories &amp; budgets</span>
-        <Icon name="chevron" size={14} className="chev" />
-      </button>
-      {banksEnabled && (
-        <button type="button" className="sheet-row" onClick={() => go(onBankConnections)}>
-          <Icon name="bank" size={18} />
-          <span>Bank connections</span>
-          <Icon name="chevron" size={14} className="chev" />
-        </button>
-      )}
-    </div>
-  )
+  const appearance = <AppearanceControl pref={pref} setPref={setPref} />
+  const screens = <ScreenRows go={go} onCategories={onCategories} onBankConnections={onBankConnections} />
+  const data = <DataRows go={go} onImport={onImport} onBackups={onBackups} />
 
   if (signedIn) {
     return (
@@ -221,6 +186,10 @@ function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections
 
         {appearance}
         {screens}
+        {data}
+        <LockRows />
+        <AlertRows />
+        <RentDating />
 
         {outConfirm && <p className="sheet-err">{outConfirm}</p>}
         <button
@@ -299,6 +268,10 @@ function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections
 
       {appearance}
       {screens}
+      {data}
+      <LockRows />
+      <AlertRows />
+      <RentDating />
     </>
   )
 }

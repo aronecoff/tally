@@ -1,0 +1,11 @@
+/* Plainsum: the display face, served from the app (the personal build loads it
+   from Google Fonts, which the public build's CSP blocks). Latin subset, upright
+   only, OFL-1.1: see src/flavor/public/fonts/. Owner: public flavor. */
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../flavor/public/fonts/instrument-serif-latin-400-normal.woff2') format('woff2');
+}
