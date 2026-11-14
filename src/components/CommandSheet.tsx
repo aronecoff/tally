@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
 import { brand } from '../lib/brand'
+import { BudgetRefused } from '../lib/budgetWrite'
 import { canSaveRules } from '../lib/ruleStore'
 import { EXAMPLES, MAX_COMMAND, hideExample, parseCommand, planCommand, rowParts, type Plan } from '../lib/commands'
 import { applyPlan, undoPlan, type Applied } from '../lib/commandRun'
@@ -125,8 +126,9 @@ function CommandBody({ categories }: { categories: Category[] }) {
       show({ at: 'done', title, note: applied.note, partial: !!applied.title })
       // After part of a plan the words stay, so Preview plans the rest.
       if (!applied.title) setText('')
-    } catch {
-      show({ at: 'error', message: 'Could not save. Try again.' })
+    } catch (e) {
+      // A budget the locked plan does not allow says why, in its own words.
+      show({ at: 'error', message: e instanceof BudgetRefused ? e.message : 'Could not save. Try again.' })
     } finally {
       busy.current = false
     }
@@ -139,10 +141,10 @@ function CommandBody({ categories }: { categories: Category[] }) {
       await undoPlan(last.applied)
       setChanges((c) => c.filter((x) => x !== last))
       show({ at: 'undone', title: last.title })
-    } catch {
+    } catch (e) {
       // The change is still whole (undoPlan stops before any row when the rule
       // cannot be taken back), so Undo stays for another try.
-      show({ at: 'error', message: 'Could not undo. Try again.' })
+      show({ at: 'error', message: e instanceof BudgetRefused ? e.message : 'Could not undo. Try again.' })
     } finally {
       busy.current = false
     }

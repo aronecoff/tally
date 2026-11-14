@@ -1,5 +1,7 @@
 import { db, type Account, type Category, type Transaction } from '../../db/db'
 import { currentMonth, shiftMonth, todayISO } from '../../lib/dates'
+import { getPlan } from '../../lib/planCache'
+import { capInForce } from '../../lib/savingsPlan'
 
 /**
  * A made-up ledger to look around in, and what App Review sees: four months of
@@ -139,16 +141,21 @@ export async function hasSampleData(): Promise<boolean> {
   return (await db.accounts.where('uid').startsWith(PREFIX).count()) > 0
 }
 
-/** Add the sample ledger. Budgets the user already set stay theirs. */
+/**
+ * Add the sample ledger. Budgets the user already set stay theirs. While a
+ * savings plan is locked, category budgets are how its budget is split, so the
+ * sample sets none at all and records none: removing it later zeroes none.
+ */
 export async function loadSampleData(): Promise<void> {
   const now = Date.now()
+  const locked = capInForce(getPlan(), todayISO()) != null
   await db.transaction('rw', db.categories, db.transactions, db.accounts, async () => {
     if (await hasSampleData()) return
     const categories = await db.categories.toArray()
     const set: Record<string, number> = {}
     for (const c of categories) {
       const budget = c.key ? BUDGETS[c.key] : undefined
-      if (c.id == null || c.deleted || !budget || c.monthlyBudget > 0) continue
+      if (locked || c.id == null || c.deleted || !budget || c.monthlyBudget > 0) continue
       await db.categories.update(c.id, { monthlyBudget: budget, updatedAt: now })
       set[c.key!] = budget
     }

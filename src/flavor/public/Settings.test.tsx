@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { db } from '../../db/db'
 import { rentDate } from '../../lib/bankRules'
+import { getPlan, setPlan } from '../../lib/planCache'
 import { rentDatingOn } from '../../lib/prefs'
 import { DOUBLE_TAP_MS } from '../../lib/useArmed'
 import { hasSampleData } from './sampleData'
@@ -120,6 +121,92 @@ describe('the app lock', () => {
       await Promise.resolve()
     })
     expect(screen.queryByRole('switch', { name: /^Lock with/ })).toBeNull()
+  })
+})
+
+describe('the savings plan', () => {
+  const goal = () => screen.getByLabelText('Save each month') as HTMLInputElement
+  const budget = () => screen.getByLabelText('Monthly budget') as HTMLInputElement
+  const lockRow = () => screen.getByRole('switch', { name: 'Lock the budget' })
+  const typeIn = (el: HTMLInputElement, v: string) => fireEvent.change(el, { target: { value: v } })
+  const said = () => [...document.querySelectorAll('.sheet [data-plan] > p')].map((p) => p.textContent)
+  /** Past the double-tap window, so the next tap is a confirmation. */
+  const wait = () => act(async () => void vi.advanceTimersByTime(DOUBLE_TAP_MS + 50))
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'performance'] })
+    vi.setSystemTime(new Date('2031-11-12T12:00:00'))
+    setPlan(null)
+  })
+  afterEach(() => void setPlan(null))
+
+  it('is offered with no account, off and empty, right after the budgets row', async () => {
+    open()
+    await screen.findByText('Savings plan')
+    expect([goal().value, budget().value, lockRow().getAttribute('aria-checked')]).toEqual(['', '', 'false'])
+    expect(said()).toEqual(['Off. Turn the lock on and Home counts spending against this budget, and category budgets can only add up to it.'])
+    const label = document.querySelector('.sheet [data-plan]')!
+    expect(label.previousElementSibling?.textContent).toContain('Categories & budgets')
+    expect(document.querySelector('.sheet')?.textContent).not.toMatch(/sign in/i)
+  })
+
+  it('locks in two taps, on this device only', async () => {
+    open()
+    await screen.findByText('Savings plan')
+    typeIn(goal(), '800')
+    typeIn(budget(), '3000')
+    fireEvent.click(lockRow())
+    expect(said()).toContain('Tap again to lock the budget at $3,000 a month with a goal of $800. Turning it off again waits for the 1st of next month.')
+    expect(getPlan()).toBeNull()
+    await wait()
+    fireEvent.click(lockRow())
+    await waitFor(() => expect(lockRow().getAttribute('aria-checked')).toBe('true'))
+    expect(getPlan()).toMatchObject({ goal: 800, cap: 3000, locked: true, since: '2031-12', pending: null })
+    expect(JSON.parse(localStorage.getItem('tally:savingsPlan:v1')!)).toMatchObject({ locked: true, cap: 3000 })
+  })
+
+  it('a higher budget waits for the 1st, shows as pending with its date, and can be cancelled', async () => {
+    setPlan({ goal: 800, cap: 3000, locked: true, since: '2031-11', pending: null, updatedAt: 1 })
+    open()
+    await screen.findByText('Savings plan')
+    typeIn(budget(), '3500')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(said()).toContain('The budget rises to $3,500 on Dec 1.')
+    expect(getPlan()?.pending).toBeNull()
+    await wait()
+    fireEvent.click(screen.getByRole('button', { name: 'Tap again to save' }))
+    await waitFor(() => expect(getPlan()?.pending).toEqual({ from: '2031-12', cap: 3500 }))
+    expect(getPlan()?.cap).toBe(3000)
+    await waitFor(() => expect(budget().value).toBe('$3,000'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel this change' }))
+    await waitFor(() => expect(getPlan()?.pending).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Cancel this change' })).toBeNull()
+  })
+
+  it('one tap asks for the lock off, which waits', async () => {
+    setPlan({ goal: 800, cap: 3000, locked: true, since: '2031-11', pending: null, updatedAt: 1 })
+    open()
+    await screen.findByText('Savings plan')
+    fireEvent.click(lockRow())
+    await waitFor(() => expect(said()).toContain('The lock turns off on Dec 1.'))
+    expect(lockRow().getAttribute('aria-checked')).toBe('true')
+    expect(getPlan()).toMatchObject({ locked: true, pending: { from: '2031-12', locked: false } })
+  })
+
+  it('says so when the device will not keep it', async () => {
+    setPlan({ goal: 800, cap: 3000, locked: true, since: '2031-11', pending: null, updatedAt: 1 })
+    open()
+    await screen.findByText('Savings plan')
+    typeIn(budget(), '2800')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await wait()
+    const blocked = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Tap again to save' }))
+    await waitFor(() => expect(document.querySelector('.sheet [data-plan] > p.sheet-err')?.textContent).toBe('Could not save the plan on this device.'))
+    blocked.mockRestore()
+    expect(getPlan()?.cap).toBe(3000)
   })
 })
 

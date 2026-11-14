@@ -16,6 +16,7 @@ import type * as RealBrand from '../../lib/brand'
 import type * as RealBrokerage from '../../lib/brokerage'
 import type * as RealMerchantLinks from '../../lib/merchantLinks'
 import type * as RealNative from '../../lib/native'
+import type * as RealPlanStore from '../../lib/planStore'
 import type * as RealPrefs from '../../lib/prefs'
 import type * as RealRuleStore from '../../lib/ruleStore'
 import type * as RealSwUpdate from '../../lib/swUpdate'
@@ -31,6 +32,7 @@ import type * as PublicInstallBanner from './InstallBanner'
 import type * as PublicMerchantLinks from './merchantLinks'
 import type * as PublicMerchantRules from './merchantRules'
 import type * as PublicNative from './native'
+import type * as PublicPlanStore from './planStore'
 import type * as PublicPrefs from './prefs'
 import type * as PublicRuleStore from './ruleStore'
 import type * as PublicSeed from './seed'
@@ -51,6 +53,7 @@ export type PublicModulesConform = [
   Expect<Conforms<PublicSync.SyncResult, RealSync.SyncResult>>,
   Expect<Conforms<typeof PublicMerchantRules, Pick<typeof RealMerchantRules, 'loadMerchantRules' | 'reloadMerchantRules'>>>,
   Expect<Conforms<typeof PublicRuleStore, Pick<typeof RealRuleStore, 'canSaveRules' | 'ruleUndo' | 'forgetRules' | 'saveRule'>>>,
+  Expect<Conforms<typeof PublicPlanStore, Pick<typeof RealPlanStore, 'loadSavingsPlan' | 'planCanSave' | 'saveSavingsPlan'>>>,
   Expect<
     Conforms<
       typeof PublicBankTransport,

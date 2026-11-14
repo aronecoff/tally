@@ -181,6 +181,22 @@ describe('Publishing the widget', () => {
     expect(sent[1]).toMatchObject({ whole: '$90', cents: '.00' })
   })
 
+  it('follows a change to the savings plan, which is not a write to the ledger', async () => {
+    ;(await load()).startWidgetSnapshot()
+    // The copy the fresh module reads.
+    const { setPlan } = await import('./planCache')
+    await settle()
+    expect(sent).toHaveLength(1)
+    setPlan({ goal: 20, cap: 80, locked: true, since: '2031-01', pending: null, updatedAt: 1 })
+    await settle()
+    expect(sent).toHaveLength(2)
+    expect(sent[1]).toMatchObject({ budget: 80, whole: '$80', budgetLine: 'of $80 budget' })
+    setPlan(null)
+    await settle()
+    expect(sent).toHaveLength(3)
+    expect(sent[2]).toMatchObject({ budget: 100 })
+  })
+
   it('stopped mid-read, it still sends nothing', async () => {
     const { startWidgetSnapshot, stopWidgetSnapshot } = await load()
     startWidgetSnapshot()

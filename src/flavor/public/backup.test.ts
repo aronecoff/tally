@@ -7,7 +7,9 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db, type Account, type Category, type Transaction } from '../../db/db'
 import { buildBackup, parseBackup, planRestore, restoreBackup } from '../../lib/backup'
+import { getPlan, setPlan } from '../../lib/planCache'
 import { rentDatingOn, setRentDating } from '../../lib/prefs'
+import type { SavingsPlan } from '../../lib/savingsPlan'
 import { localDb } from './localDb'
 import { currentLedgerGeneration } from './sync'
 import { needsFirstRun } from './onboarded'
@@ -56,6 +58,8 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  setPlan(null)
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -242,5 +246,103 @@ describe('planRestore', () => {
 
   it('does not ask a cloud that is not there', async () => {
     await expect(planRestore(parseBackup(JSON.stringify(await buildBackup())))).resolves.toBeTruthy()
+  })
+})
+
+describe('the savings plan in a backup', () => {
+  const KEY = 'tally:savingsPlan:v1'
+  const plan = (extra: Partial<SavingsPlan> = {}): SavingsPlan => ({ goal: 800, cap: 3000, locked: true, since: '2031-03', pending: null, updatedAt: 5000, ...extra })
+  const off = (extra: Partial<SavingsPlan> = {}) => plan({ locked: false, since: null, ...extra })
+
+  /** A backup of a small ledger, holding this plan (or none, or whatever text is given for one). */
+  async function fileWith(theirs: SavingsPlan | null | string) {
+    await Promise.all([db.categories.clear(), db.transactions.clear(), db.accounts.clear(), localDb.rules.clear()])
+    await seed()
+    setPlan(typeof theirs === 'string' ? null : theirs)
+    const built = await buildBackup()
+    if (typeof theirs === 'string') built.prefs[KEY] = theirs
+    setPlan(null)
+    return parseBackup(JSON.stringify(built))
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2031-04-10T12:00:00'))
+    setPlan(null)
+  })
+
+  it('travels in the preferences, as the stored text, when there is one', async () => {
+    setPlan(plan())
+    expect(JSON.parse((await buildBackup()).prefs[KEY])).toEqual(plan())
+    setPlan(null)
+    expect(KEY in (await buildBackup()).prefs).toBe(false)
+  })
+
+  it('onto a device with no plan, a locked plan comes back locked, with the month it counts from', async () => {
+    const file = await fileWith(plan({ pending: { from: '2031-05', cap: 3500 } }))
+    await restoreBackup(file)
+    expect(getPlan()).toEqual(plan({ pending: { from: '2031-05', cap: 3500 } }))
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(getPlan())
+  })
+
+  it.each([
+    ['no plan', null],
+    ['an unlocked one', off({ updatedAt: 9000 })],
+    ['a looser one', plan({ cap: 9000, goal: 1, updatedAt: 9000 })],
+    ['a tighter one', plan({ cap: 100, updatedAt: 9000 })],
+    ['a damaged one', '{"goal": "lots"'],
+    ['one that is not a plan', JSON.stringify({ goal: 800, cap: 3000, locked: true, since: null })],
+  ])('onto a locked device the plan stays exactly as it is when the file has %s', async (_what, theirs) => {
+    const file = await fileWith(theirs)
+    const mine = plan({ pending: { from: '2031-05', goal: 700 } })
+    setPlan(mine)
+    const stored = localStorage.getItem(KEY)
+    await restoreBackup(file)
+    expect(getPlan()).toEqual(mine)
+    expect(localStorage.getItem(KEY)).toBe(stored)
+  })
+
+  it('onto a device with an unlocked plan, an older locked plan in the file does not come in, and a newer one does', async () => {
+    const older = await fileWith(plan({ updatedAt: 4000 }))
+    setPlan(off({ updatedAt: 5000 }))
+    await restoreBackup(older)
+    expect(getPlan()).toEqual(off({ updatedAt: 5000 }))
+
+    const newer = await fileWith(plan({ updatedAt: 6000 }))
+    setPlan(off({ updatedAt: 5000 }))
+    await restoreBackup(newer)
+    expect(getPlan()).toEqual(plan({ updatedAt: 6000 }))
+  })
+
+  it('a device whose unlock has landed counts as unlocked: a file from while it was locked does not lock it again', async () => {
+    const fromBefore = await fileWith(plan({ updatedAt: 4000 }))
+    // Stored locked, with an unlock asked for in March that came into force on April 1.
+    const landed = plan({ pending: { from: '2031-04', locked: false }, updatedAt: 5000 })
+    setPlan(landed)
+    await restoreBackup(fromBefore)
+    expect(getPlan()).toEqual(landed)
+
+    // And like any unlocked plan it gives way to a newer one: a lock made since, on purpose.
+    const since = await fileWith(plan({ cap: 2500, since: '2031-05', updatedAt: 6000 }))
+    setPlan(landed)
+    await restoreBackup(since)
+    expect(getPlan()).toEqual(plan({ cap: 2500, since: '2031-05', updatedAt: 6000 }))
+  })
+
+  it('a damaged plan in the file brings nothing in, and the rest restores', async () => {
+    const file = await fileWith('{"goal": "lots"')
+    await restoreBackup(file)
+    expect(getPlan()).toBeNull()
+    expect(await db.transactions.count()).toBe(2)
+  })
+
+  it('a file from before the plan existed restores as it always did', async () => {
+    const file = await fileWith(null)
+    expect(KEY in file.prefs).toBe(false)
+    await restoreBackup(file)
+    expect(getPlan()).toBeNull()
+    expect(localStorage.getItem(KEY)).toBeNull()
+    expect(await db.transactions.count()).toBe(2)
+    expect(reload).toHaveBeenCalledOnce()
   })
 })

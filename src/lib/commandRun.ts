@@ -1,4 +1,5 @@
 import { db, type Transaction } from '../db/db'
+import { writeBudgets } from './budgetWrite'
 import { forgetRules, ruleUndo, saveRule } from './ruleStore'
 import type { ForgetRule, Plan } from './commands'
 
@@ -30,7 +31,9 @@ export async function applyPlan(plan: OkPlan): Promise<Applied> {
   const now = Date.now()
   await db.transaction('rw', db.transactions, db.categories, async () => {
     for (const r of plan.rows) await db.transactions.update(r.t.id!, { ...r.after, updatedAt: now })
-    if (plan.budget) await db.categories.update(plan.budget.category.id!, { monthlyBudget: plan.budget.after, updatedAt: now })
+    // Checked again here: between Preview and Apply a sync may have used the
+    // room. A refusal (budgetWrite.BudgetRefused) rolls the whole plan back.
+    if (plan.budget) await writeBudgets([{ id: plan.budget.category.id!, monthlyBudget: plan.budget.after }], { now })
   })
   const applied: Applied = {
     rows: plan.rows.map((r) => ({ id: r.t.id!, before: r.before })),
@@ -91,6 +94,9 @@ export async function undoPlan(applied: Applied): Promise<void> {
       delete fields.manual
       await db.transactions.update(r.id, { ...fields, updatedAt: now })
     }
-    if (applied.budget) await db.categories.update(applied.budget.id, { monthlyBudget: applied.budget.before, updatedAt: now })
+    // Undoing a change that lowered a budget raises it again, and that is
+    // refused if the room has gone since. A budget change has no rows and no
+    // rule, so nothing else was written: the change stays whole, for another try.
+    if (applied.budget) await writeBudgets([{ id: applied.budget.id, monthlyBudget: applied.budget.before }], { now })
   })
 }

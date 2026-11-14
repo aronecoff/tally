@@ -342,6 +342,12 @@
     width: 100%;
   }
 
+  /* The savings plan's two amounts: their labels are longer than the 96px
+     column a field line gives one, so the label takes its own width here. */
+  .sheet-plan .field-line {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
   /* ---- Motion ------------------------------------------------------------- */
   @keyframes sheetIn {
     from {

@@ -72,7 +72,8 @@ describe('a fresh public app', () => {
     expect(sheet.textContent).toContain('Appearance')
     expect(sheet.textContent).toContain('Categories & budgets')
     expect(sheet.textContent).toContain('Bank connections')
-    expect(sheet.querySelector('input')).toBeNull()
+    // Nothing to type but the savings plan's two amounts: no email, no password.
+    expect([...sheet.querySelectorAll('input')].map((i) => i.closest('label')?.textContent)).toEqual(['Save each month', 'Monthly budget'])
     expect(sheet.textContent).not.toMatch(/sign in|sign out|password|email/i)
   })
 

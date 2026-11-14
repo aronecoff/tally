@@ -21,6 +21,8 @@ import { db, type Account, type Category, type Transaction } from '../db/db'
 import { defaultCategories } from '../db/seed'
 import { BackupError, buildBackup, mergeBackup, parseBackup, planRestore, restoreBackup, type BackupFile } from './backup'
 import { replaceLedger, restoreMode } from './backupPolicy'
+import { homeNow } from './homeNow'
+import { getPlan, setPlan } from './planCache'
 
 const cat = (over: Partial<Category> = {}): Category => ({
   id: 1, uid: 'cat-1', name: 'Dining', icon: 'utensils', color: '#fff', kind: 'expense', monthlyBudget: 100, sortOrder: 0, updatedAt: 1, ...over,
@@ -375,5 +377,41 @@ describe('mergeBackup', () => {
     vi.spyOn(db.accounts, 'bulkAdd').mockRejectedValueOnce(new Error('disk full'))
     await expect(mergeBackup(file({ categories: [cat({ id: 1 })], transactions: [tx()], accounts: [acct()] }))).rejects.toThrow()
     expect(await snapshot()).toEqual(before)
+  })
+})
+
+describe('the savings plan and a backup, in the personal app', () => {
+  const mine = { goal: 800, cap: 3000, locked: true, since: '2031-03', pending: null, updatedAt: 5000 }
+  afterEach(() => void setPlan(null))
+
+  it('is not in the file: the plan lives in the account, as the rules do', async () => {
+    setPlan(mine)
+    await db.categories.add(cat())
+    const built = await buildBackup()
+    expect(built.prefs).toEqual({})
+    expect(JSON.stringify(built)).not.toMatch(/savingsPlan|"cap"|"goal"/)
+  })
+
+  it('a restore leaves the plan exactly as it was, whatever the file holds', async () => {
+    setPlan(mine)
+    const stored = localStorage.getItem('tally:savingsPlan:v1')
+    const looser = JSON.stringify({ ...mine, cap: 9000, locked: false, since: null, updatedAt: 9000 })
+    await mergeBackup(parseBackup(text({ categories: [cat()], transactions: [tx()], prefs: { 'tally:savingsPlan:v1': looser } })))
+    expect(getPlan()).toEqual(mine)
+    expect(localStorage.getItem('tally:savingsPlan:v1')).toBe(stored)
+  })
+
+  it('a restore that adds a budgeted category lands, and Home still measures against the plan', async () => {
+    setPlan(mine)
+    await db.categories.add(cat({ monthlyBudget: 2900 }))
+    await mergeBackup(parseBackup(text({ categories: [cat({ id: 2, uid: 'cat-2', name: 'Travel', monthlyBudget: 600 })] })))
+    expect((await db.categories.toArray()).map((c) => c.monthlyBudget)).toEqual([2900, 600])
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2031-04-10T12:00:00'))
+    try {
+      expect((await homeNow()).d.totalBudget).toBe(3000)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

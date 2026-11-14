@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db } from '../../db/db'
 import { guessCategoryName, isRentCategory } from '../../lib/categorize'
 import { currentMonth, shiftMonth, todayISO } from '../../lib/dates'
+import { setPlan } from '../../lib/planCache'
 import { hasSampleData, loadSampleData, removeSampleData } from './sampleData'
 import { seedIfEmpty } from './seed'
 
@@ -105,6 +106,39 @@ describe('loadSampleData', () => {
     await loadSampleData()
     expect((await db.transactions.toArray()).some((t) => t.categoryId === dining.id)).toBe(false)
     expect((await db.categories.get(dining.id!))?.monthlyBudget).toBe(0)
+  })
+})
+
+describe('with a locked savings plan', () => {
+  const lock = () => setPlan({ goal: 200, cap: 900, locked: true, since: '2031-01', pending: null, updatedAt: 1 })
+  afterEach(() => void setPlan(null))
+
+  it('the sample sets no budgets at all, and still loads its rows and accounts', async () => {
+    const groceries = (await db.categories.toArray()).find((c) => c.key === 'groceries')!
+    await db.categories.update(groceries.id!, { monthlyBudget: 333 })
+    lock()
+    await loadSampleData()
+    const cats = await db.categories.toArray()
+    expect(cats.filter((c) => c.monthlyBudget > 0).map((c) => [c.key, c.monthlyBudget])).toEqual([['groceries', 333]])
+    expect(await db.transactions.count()).toBeGreaterThan(40)
+    expect(await db.accounts.count()).toBe(5)
+  })
+
+  it('and removing it zeroes none', async () => {
+    lock()
+    await loadSampleData()
+    // Budgets set by hand afterwards, one of them the amount the sample would have used.
+    const dining = (await db.categories.toArray()).find((c) => c.key === 'dining')!
+    await db.categories.update(dining.id!, { monthlyBudget: 240 })
+    await removeSampleData()
+    expect((await db.categories.get(dining.id!))?.monthlyBudget).toBe(240)
+    expect(await db.transactions.count()).toBe(0)
+  })
+
+  it('with the lock off, the sample sets its budgets as before', async () => {
+    setPlan({ goal: 200, cap: 900, locked: false, since: null, pending: null, updatedAt: 1 })
+    await loadSampleData()
+    expect((await db.categories.toArray()).filter((c) => c.monthlyBudget > 0).length).toBeGreaterThan(5)
   })
 })
 

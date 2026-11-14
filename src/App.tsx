@@ -30,6 +30,7 @@ import { syncAllConnectors, subscribeBankHealth, type BankHealth } from './lib/b
 import { startAddIntent, type AddPrefill } from './lib/addIntent'
 import { startAutoBackup } from './lib/autoBackup'
 import { startBudgetAlerts } from './lib/budgetAlerts'
+import { loadSavingsPlan } from './lib/planStore'
 import { startWidgetSnapshot } from './lib/widgetSnapshot'
 import { FirstRun } from './flavor/slots'
 
@@ -154,7 +155,11 @@ export default function App() {
     // Real-time connector sync: pull balances + transactions on boot, whenever the
     // window regains focus, and every few minutes while open. Each run syncs the
     // device (Supabase ↔ Dexie) first; initSync() adds a 45s/online loop of its own.
-    const pull = () => void syncAllConnectors().catch(() => {})
+    // The account's savings plan is read again wherever the ledger is.
+    const pull = () => {
+      void syncAllConnectors().catch(() => {})
+      void loadSavingsPlan()
+    }
     const boot = setTimeout(pull, 1800)
     // SimpleFIN refreshes once every 24h; lib/banks throttles the actual bank
     // calls to 4/day. A 30-minute tick is plenty to catch the window opening.
@@ -174,6 +179,9 @@ export default function App() {
       const now = !!s.email
       if (now && !signedIn) pull()
       signedIn = now
+      // After each sync too (at most once a minute), so a plan changed on another
+      // device reaches this one without waiting for a focus event.
+      if (s.status === 'synced') void loadSavingsPlan({ ifStale: true })
     })
     return () => {
       clearTimeout(boot)

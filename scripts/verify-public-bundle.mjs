@@ -32,7 +32,7 @@ if (!existsSync(join(dist, 'index.html'))) stop('dist-public/index.html is missi
 
 const FORBIDDEN = [
   // The cloud and the connectors
-  /supabase/i, /snaptrade/i, /\bteller\b/i, /merchant_rules/i, /functions\/v1/i, /OWNER_EMAIL/i,
+  /supabase/i, /snaptrade/i, /\bteller\b/i, /merchant_rules/i, /savings_plan/i, /functions\/v1/i, /OWNER_EMAIL/i,
   /auth\.getSession/, /signInWith/,
   // Who wrote it, as far as the repo's own address says. The rest is in TERMS.
   /aronecoff/i,

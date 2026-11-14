@@ -20,6 +20,7 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 import { Dashboard } from './Dashboard'
 import { db, type Category, type Transaction } from '../db/db'
 import { money } from '../lib/format'
+import { setPlan } from '../lib/planCache'
 
 const cat = (id: number, name: string, monthlyBudget: number, sortOrder: number, kind: Category['kind'] = 'expense'): Category => ({
   id,
@@ -313,3 +314,64 @@ describe('Budget forecast one-offs', () => {
   })
 })
 
+
+describe('Budget with a locked savings plan', () => {
+  // Category budgets add up to 6,375. Without the Other charges the month has spent 3,783.08.
+  const lock = (cap: number) => setPlan({ goal: 800, cap, locked: true, since: '2026-09', pending: null, updatedAt: 1 })
+  const CALM = SEPTEMBER.filter((t) => t.categoryId !== 9)
+  afterEach(() => void setPlan(null))
+
+  it('the hero and the wheel measure against the plan, and the note says how far the category budgets run past it', async () => {
+    lock(6000)
+    const root = await renderMonth('2026-09', CALM)
+    expect(root.querySelector('.hero-state')?.textContent).toBe('On track')
+    expect(root.querySelector('.hero-caption')?.textContent).toMatch(/^of \$6,000 budget/)
+    expect(root.querySelector('.wheel-center-sub')?.textContent).toBe('of $6,000')
+    expect(root.querySelector('.wheel-center-num')?.textContent).toBe(money(6000 - 3783.08))
+    const notes = [...root.querySelectorAll('.bud-hero .bud-cap-note')].map((n) => n.textContent)
+    expect(notes).toEqual(['Category budgets add up to $375 more than this budget'])
+  })
+
+  it('over the plan while inside the category budgets reads over', async () => {
+    lock(3500)
+    const root = await renderMonth('2026-09', CALM)
+    expect(root.querySelector('.hero-state')?.textContent).toBe('Over budget')
+    expect(root.querySelector('.hero-caption')?.textContent).toBe(`${money(3783.08 - 3500)} over a $3,500 budget`)
+    expect(root.querySelector('.wheel-center-label')?.textContent).toBe('Over budget')
+  })
+
+  it('says how much of the budget no category holds', async () => {
+    lock(7000)
+    const root = await renderMonth('2026-09', CALM)
+    expect(root.querySelector('.hero-caption')?.textContent).toMatch(/^of \$7,000 budget/)
+    expect([...root.querySelectorAll('.bud-hero .bud-cap-note')].map((n) => n.textContent)).toEqual(['$625 of this budget is unassigned'])
+  })
+
+  it('says nothing more when the category budgets add up to exactly the budget', async () => {
+    lock(6375)
+    const root = await renderMonth('2026-09', CALM)
+    expect(root.querySelector('.bud-hero .bud-cap-note')).toBeNull()
+  })
+
+  it('keeps the note about spending with no budget beside its own', async () => {
+    lock(6000)
+    const root = await renderMonth('2026-09', SEPTEMBER)
+    expect([...root.querySelectorAll('.bud-hero .bud-cap-note')].map((n) => n.textContent)).toEqual([
+      '$2,054.98 of this has no budget',
+      'Category budgets add up to $375 more than this budget',
+    ])
+  })
+
+  it('a past month reads against the budget in force today', async () => {
+    lock(3000)
+    const root = await renderMonth('2026-08', [txn('2026-08-01', 2875, 3), txn('2026-08-10', 500, 7)])
+    expect(root.querySelector('.hero-caption')?.textContent).toBe('$375.00 over a $3,000 budget')
+  })
+
+  it('with the lock off, nothing is different', async () => {
+    setPlan({ goal: 800, cap: 3000, locked: false, since: null, pending: null, updatedAt: 1 })
+    const root = await renderMonth('2026-09', CALM)
+    expect(root.querySelector('.hero-caption')?.textContent).toMatch(/^of \$6,375 budget/)
+    expect(root.querySelector('.bud-hero .bud-cap-note')).toBeNull()
+  })
+})

@@ -3,6 +3,7 @@ import { moneyParts, toCents } from './format'
 import { homeHero, homeLabel } from './homeFigures'
 import { homeNow } from './homeNow'
 import { hasNative, native } from './native'
+import { subscribePlan } from './planCache'
 
 /**
  * What the home-screen and lock-screen widgets show, handed to the app around the
@@ -113,6 +114,8 @@ export function startWidgetSnapshot(): void {
   if (started || !hasNative()) return
   started = true
   Dexie.on('storagemutated', mark)
+  // A change to the savings plan moves the figures and is not a write to the ledger.
+  subscribePlan(mark)
   document.addEventListener('visibilitychange', () => enqueue(document.visibilityState === 'visible'))
   enqueue(true)
 }

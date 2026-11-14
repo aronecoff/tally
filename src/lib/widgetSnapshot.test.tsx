@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { Home } from '../components/Home'
 import { db, type Category, type Transaction } from '../db/db'
+import { setPlan } from './planCache'
 import { buildWidgetSnapshot } from './widgetSnapshot'
 
 const cat = (id: number, name: string, monthlyBudget: number, extra: Partial<Category> = {}): Category => ({
@@ -147,5 +148,49 @@ describe('The widget says what Home says', () => {
     const home = await both('2026-10-12T12:00:00', [txn('2026-10-03', 60, 4)], cats)
     agrees(home)
     expect(home.snapshot.budget).toBe(2000.5)
+  })
+})
+
+describe('With a locked savings plan', () => {
+  // Category budgets add up to 2,000.50. The plan's budget is 1,800.
+  const lock = (cap = 1800) => setPlan({ goal: 400, cap, locked: true, since: '2026-10', pending: null, updatedAt: 1 })
+  afterEach(() => void setPlan(null))
+
+  it('the widget and Home both measure against the plan, not what the categories add up to', async () => {
+    lock()
+    const home = await both('2026-10-12T12:00:00', [txn('2026-10-01', 1200, 1), txn('2026-10-03', 60.15, 2), txn('2026-10-04', 25.5, 3)])
+    agrees(home)
+    expect(home.snapshot).toMatchObject({ budget: 1800, left: 514.35, whole: '$514', cents: '.35', unit: 'left', budgetLine: 'of $1,800 budget', state: 'ok' })
+  })
+
+  it('over the plan while inside the category budgets reads over, on both', async () => {
+    lock()
+    const home = await both('2026-10-12T12:00:00', [txn('2026-10-01', 1200, 1), txn('2026-10-03', 450, 2), txn('2026-10-05', 250, 3)])
+    agrees(home)
+    expect(home.snapshot).toMatchObject({ budget: 1800, state: 'over', stateWord: 'Over budget', over: true, left: -100, whole: '$100', unit: 'over' })
+  })
+
+  it('a pending raise is not the budget until the 1st', async () => {
+    setPlan({ goal: 400, cap: 1800, locked: true, since: '2026-10', pending: { from: '2026-11', cap: 2500 }, updatedAt: 1 })
+    expect((await both('2026-10-31T12:00:00', [txn('2026-10-01', 1200, 1)])).snapshot.budget).toBe(1800)
+    cleanup()
+    const next = await both('2026-11-01T12:00:00', [txn('2026-11-01', 1200, 1)])
+    agrees(next)
+    expect(next.snapshot.budget).toBe(2500)
+  })
+
+  it('with the lock off it is what the categories add up to, as before', async () => {
+    setPlan({ goal: 400, cap: 1800, locked: false, since: null, pending: null, updatedAt: 1 })
+    const home = await both('2026-10-12T12:00:00', [txn('2026-10-01', 1200, 1)])
+    agrees(home)
+    expect(home.snapshot.budget).toBe(2000.5)
+  })
+
+  it('every word still fits what the app will take', async () => {
+    lock(1234567.89)
+    const { snapshot } = await both('2026-10-12T12:00:00', [txn('2026-10-01', 1200, 1), txn('2026-10-03', 450, 2)])
+    for (const word of [snapshot.label, snapshot.stateWord, snapshot.whole, snapshot.cents, snapshot.unit, snapshot.budgetLine, snapshot.forecast]) {
+      expect(word.length).toBeLessThanOrEqual(80)
+    }
   })
 })

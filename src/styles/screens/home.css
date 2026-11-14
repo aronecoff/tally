@@ -82,6 +82,24 @@
     color: var(--text-3);
   }
 
+  /* The savings plan's one line, under the net. */
+  .home-plan {
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    color: var(--text-3);
+    text-wrap: pretty;
+  }
+
+  .home-plan.over {
+    color: var(--over);
+  }
+
+  /* What follows the dot wraps as one piece, never "short / of goal". */
+  .home-plan-tail {
+    white-space: nowrap;
+  }
+
   /* ---- Lists: dissolved, inset hairlines between rows (.row-sep) --------- */
   .home-list {
     list-style: none;

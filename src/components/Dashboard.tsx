@@ -5,11 +5,13 @@ import { money, toCents } from '../lib/format'
 import { isFixed } from '../lib/categorize'
 import { BILL_MONTHS, oneOffRows, paceProjector } from '../lib/projection'
 import { awaitingPay } from '../lib/payday'
-import { beforePayday, budgetStatus, rowState, INCOME, OVERSPENT, SAVED, SPENDING, BY_MONTH_END, type RowState } from '../lib/copy'
+import { beforePayday, budgetFitNote, budgetStatus, rowState, INCOME, OVERSPENT, SAVED, SPENDING, BY_MONTH_END, type RowState } from '../lib/copy'
 import { dayLabel, monthLabel, shiftMonth } from '../lib/dates'
 import { useToday } from '../lib/useToday'
 import { useKeyedLiveQuery } from '../lib/useKeyedLiveQuery'
 import { isRefund } from '../lib/ledger'
+import { useCapInForce } from '../lib/planCache'
+import { budgetFit, budgetsTotal } from '../lib/savingsPlan'
 import { pressable } from '../lib/pressable'
 import { useSettle } from '../lib/motion'
 import { BudgetWheel, type WheelSlice } from './BudgetWheel'
@@ -67,6 +69,8 @@ function buildModel(
   isCurrent: boolean,
   dayOfMonth: number,
   daysInMonth: number,
+  /** The savings plan's budget while it is locked, else null (savingsPlan.capInForce). */
+  cap: number | null,
 ) {
   // Summed in whole cents and divided once: a float sum of 9.99 + 20.00 is
   // 29.990000000000002, which read 'Over budget · $0.00 over' a $29.99 budget.
@@ -159,7 +163,8 @@ function buildModel(
   const rankOf = (r: Row) => (r.id === null ? 2.5 : rank[r.state])
   rows.sort((a, b) => rankOf(a) - rankOf(b) || b.spent - a.spent)
 
-  const totalLimit = expenseCats.reduce((s, c) => s + toCents(c.monthlyBudget || 0), 0) / 100
+  // Locked, the month is measured against the plan's budget, as on Home.
+  const totalLimit = cap ?? budgetsTotal(expenseCats)
   const idle = rows.filter(isIdle)
   return {
     count,
@@ -169,6 +174,8 @@ function buildModel(
     rows: rows.filter((r) => !isIdle(r)),
     idle,
     totalLimit,
+    /** How the category budgets sit against a locked budget. Null with none in force. */
+    fit: budgetFit(expenseCats, cap),
     projectedTotal: p.monthEnd(catSpends, expense, uncatLump),
     canProject: p.canProject && isCurrent,
     /** Display-only: spend in rows with no budget (Other + Uncategorized). */
@@ -216,11 +223,15 @@ export const Dashboard = memo(function Dashboard({
   const daysInMonth = new Date(y, m, 0).getDate()
   const dayOfMonth = isCurrent ? Number(today.slice(8, 10)) : daysInMonth
 
+  // The budget in force today, whichever month is shown: budgets have never
+  // kept a history, and the plan keeps none either.
+  const cap = useCapInForce()
+
   // A hidden (keep-alive) pane keeps its last picture and skips the rebuild
   // until it is shown again; the catch-up happens in the render that shows it.
   const live = useMemo(
-    () => ({ month, txns, history, categories, isCurrent, daysInMonth, dayOfMonth }),
-    [month, txns, history, categories, isCurrent, daysInMonth, dayOfMonth],
+    () => ({ month, txns, history, categories, isCurrent, daysInMonth, dayOfMonth, cap }),
+    [month, txns, history, categories, isCurrent, daysInMonth, dayOfMonth, cap],
   )
   const [shown, setShown] = useState(live)
   if (active && shown !== live) setShown(live)
@@ -229,7 +240,7 @@ export const Dashboard = memo(function Dashboard({
   const data = useMemo(
     () =>
       src.txns && src.history
-        ? buildModel(src.month, src.txns, src.history, src.categories, src.isCurrent, src.dayOfMonth, src.daysInMonth)
+        ? buildModel(src.month, src.txns, src.history, src.categories, src.isCurrent, src.dayOfMonth, src.daysInMonth, src.cap)
         : null,
     [src],
   )
@@ -291,6 +302,8 @@ export const Dashboard = memo(function Dashboard({
   const empty = !src.isCurrent && data.count === 0
   // The live month before payday: not 'Overspent' (buildModel).
   const awaitingIncome = data.awaitingIncome
+  // Locked: how far the category budgets are from the budget they split.
+  const fitNote = data.fit && budgetFitNote(data.fit)
 
   const drill = (r: Row) => (
     <ul className="bud-txns" id={`bud-txns-${rowKey(r)}`}>
@@ -453,6 +466,7 @@ export const Dashboard = memo(function Dashboard({
               {heroState !== 'ok' && data.unbudgetedTotal > 0 && (
                 <span className="bud-cap-note num">{money(data.unbudgetedTotal)} of this has no budget</span>
               )}
+              {fitNote && <span className="bud-cap-note num">{fitNote}</span>}
             </>
           )}
           {!empty && (

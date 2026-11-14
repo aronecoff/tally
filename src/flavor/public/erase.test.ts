@@ -196,3 +196,14 @@ describe('eraseAllData', () => {
     expect(await db.accounts.count()).toBe(0)
   })
 })
+
+describe('the savings plan', () => {
+  it('goes with everything else: erase is erase', async () => {
+    localStorage.setItem('tally:savingsPlan:v1', JSON.stringify({ goal: 800, cap: 3000, locked: true, since: '2031-03', pending: null, updatedAt: 1 }))
+    await eraseAllData()
+    expect(localStorage.getItem('tally:savingsPlan:v1')).toBeNull()
+    // The page reloads next, and the fresh one holds no plan.
+    vi.resetModules()
+    expect((await import('../../lib/planCache')).getPlan()).toBeNull()
+  })
+})

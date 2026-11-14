@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "asOf": 0,
+  "month": "2031-03",
+  "hasBudget": true,
+  "budget": 2020.5,
+  "spent": 1917.74,
+  "left": 102.76,
+  "over": false,
+  "state": "pace",
+  "label": "March · day 18 of 31",
+  "stateWord": "Likely to go over",
+  "whole": "$102",
+  "cents": ".76",
+  "unit": "left",
+  "budgetLine": "of $2,020.50 budget",
+  "forecast": "~$2,449 by month-end",
+  "rail": 0.9491413016580055,
+  "pace": 0.5806451612903226
+}

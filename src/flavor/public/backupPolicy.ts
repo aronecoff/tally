@@ -2,6 +2,9 @@ import { db } from '../../db/db'
 import type { BackupFile } from '../../lib/backup'
 import { resumeAutoBackup, writeBackupNow } from '../../lib/autoBackup'
 import type { RestoreMode } from '../../lib/backupPolicy'
+import { todayISO } from '../../lib/dates'
+import { PLAN_KEY, getPlan, setPlan } from '../../lib/planCache'
+import { planOn, readPlan, type SavingsPlan } from '../../lib/savingsPlan'
 import { forgetBankCoverage } from './bankTransport'
 import { localDb, type LocalRule } from './localDb'
 import { reloadMerchantRules } from './merchantRules'
@@ -43,8 +46,37 @@ function writePrefs(prefs: Record<string, string>): void {
   }
 }
 
+/**
+ * The savings plan travels too, as its stored text: the phone holds the only
+ * copy, and WebKit does not promise to keep page storage. It is not on the list
+ * above, so nothing writes it back blind (restorePlan decides).
+ */
 export async function backupExtras(): Promise<Pick<BackupFile, 'rules' | 'prefs'>> {
-  return { rules: await localDb.rules.toArray(), prefs: readPrefs() }
+  const prefs = readPrefs()
+  const plan = getPlan()
+  if (plan) prefs[PLAN_KEY] = JSON.stringify(plan)
+  return { rules: await localDb.rules.toArray(), prefs }
+}
+
+/**
+ * Bring a backup's savings plan in, without ever loosening the one here. Each
+ * part is judged on this device's plan as it stands today:
+ *  - locked today: it stays exactly as it is, pending change included;
+ *  - no plan here: the file's comes in, if it is one;
+ *  - an unlocked plan here: the file's comes in only if it is the newer.
+ * So a restore can bring a lock back (a phone whose storage was lost), never
+ * take one off or loosen one, and never undo an unlock that has landed.
+ */
+function restorePlan(prefs: Record<string, string>): void {
+  const here = planOn(getPlan(), todayISO())
+  if (here?.locked) return
+  let theirs: SavingsPlan | null = null
+  try {
+    if (typeof prefs[PLAN_KEY] === 'string') theirs = readPlan(JSON.parse(prefs[PLAN_KEY]))
+  } catch {
+    /* not JSON: the file brings no plan */
+  }
+  if (theirs && (!here || theirs.updatedAt > here.updatedAt)) setPlan(theirs)
 }
 
 const isRule = (r: unknown): r is LocalRule => {
@@ -80,6 +112,7 @@ export async function replaceLedger(file: BackupFile): Promise<void> {
     throw e
   }
   writePrefs(file.prefs)
+  restorePlan(file.prefs)
   // The days since the backup are not in the ledger any more, so a linked bank's
   // next pull reads them again. Rows it has already are matched by their ids.
   forgetBankCoverage()

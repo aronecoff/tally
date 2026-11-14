@@ -1,16 +1,19 @@
 import { memo, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Category, type Transaction } from '../db/db'
-import { dayLabel } from '../lib/dates'
+import { dayLabel, monthShortLabel } from '../lib/dates'
 import { useToday } from '../lib/useToday'
 import { homeBillsSince, homeDays, homeFigures, homeHero, homeHistoryFrom, homeLabel, type HomeRow as Row } from '../lib/homeFigures'
 import { brand } from '../lib/brand'
 import { cleanMerchant } from '../lib/merchants'
 import { isRefund } from '../lib/ledger'
 import { money, pct } from '../lib/format'
-import { rowState, budgetStatus, beforePayday, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET } from '../lib/copy'
+import { useCapInForce, useSavingsPlan } from '../lib/planCache'
+import { budgetFit, scoreboard, type SavingsPlan } from '../lib/savingsPlan'
+import { rowState, budgetStatus, beforePayday, budgetsTooMuch, planLine, BUDGETS_TOO_MUCH, INCOME, SPENDING, SAVED, OVERSPENT, NO_BUDGET } from '../lib/copy'
 import { Icon } from './Icon'
 import { Money } from './Money'
+import { Parts } from './Parts'
 import { Pending } from './Pending'
 import { Refund } from './Refund'
 import { Skeleton } from './Skeleton'
@@ -72,6 +75,35 @@ function useWhileActive<T>(value: T, active: boolean): T {
 const railP = (p: number) => ({ '--p': Math.max(0, Math.min(1, p)) }) as CSSProperties
 
 /**
+ * The savings plan's one line, under the net: the average of the whole months
+ * since the lock began, set against the goal (lib/savingsPlan.scoreboard). It is
+ * mounted only while a plan is locked, so with no plan Home asks for nothing
+ * more. The net row above it is the live month, shown apart; this line carries
+ * whole months only, so it can never read a month before payday as a failure.
+ * Nothing is drawn until those months' rows have loaded: Home never flashes a
+ * false figure, and is not held on its skeleton for them either.
+ */
+function HomePlanLine({ plan, today, active }: { plan: SavingsPlan; today: string; active: boolean }) {
+  const month = today.slice(0, 7)
+  const since = plan.since
+  const counts = since != null && since < month
+  const liveWhole = useLiveQuery(
+    () => (counts ? db.transactions.where('date').between(`${since}-01`, `${month}-01`, true, false).toArray() : EMPTY),
+    [counts, since, month],
+  )
+  const whole = useWhileActive(liveWhole, active)
+  const score = useMemo(() => (whole ? scoreboard(plan, whole, today) : null), [plan, whole, today])
+  if (!score) return null
+  const line = planLine(score, monthShortLabel(score.since))
+  // Each side of the dot stays whole, so a narrow phone breaks the line at the dot.
+  return (
+    <div className={`home-plan num${line.over ? ' over' : ''}`}>
+      {line.head} · <span className="home-plan-tail">{line.tail}</span>
+    </div>
+  )
+}
+
+/**
  * Home = the live dashboard for the current month. One budget hero (state word,
  * figure, rail), the Income/Spending contributors and the net, then only what
  * needs you. The day bars, budgets and recurring bills sit behind 'Show charts'
@@ -101,9 +133,14 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
     return m
   }, [cats])
 
+  // The savings plan as it stands today. Locked, its budget is what the month is
+  // measured against (lib/savingsPlan.ts); with no plan nothing here changes.
+  const plan = useSavingsPlan()
+  const cap = useCapInForce()
+
   const d = useMemo(
-    () => homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth }),
-    [monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth],
+    () => homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth, cap }),
+    [monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth, cap],
   )
 
   // Recurring bills: an expense whose merchant recurs across ≥2 distinct months.
@@ -181,6 +218,11 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
   const hero = homeHero(d, dayOfMonth, daysInMonth)
   const { overBudget, overPaceBudget, budgetPct, budgetState, pacePct, hasBudget } = hero
   const hasActivity = inTotal > 0 || outTotal > 0
+  // Locked: how the category budgets sit against the plan's budget. When they
+  // add up to more, the hero can be over while every category is inside its
+  // own budget, so Home says so itself (below) and never the all-clear.
+  const fit = budgetFit(cats, cap)
+  const budgetsOver = fit != null && fit.over > 0
 
   // What needs you: over budget, likely to go over, or unfiled, plus (while the
   // month total is at risk) the unbudgeted spending that is pushing it there.
@@ -393,6 +435,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
                 )}
               </div>
             )}
+            {plan?.locked && <HomePlanLine plan={plan} today={today} active={active} />}
           </div>
         </section>
 
@@ -401,7 +444,7 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
           <div className="sect-row">
             <h2 className="sect-title">Needs your eye</h2>
           </div>
-          {overIncome || attention.length > 0 ? (
+          {overIncome || budgetsOver || attention.length > 0 ? (
             <ul className="home-list">
               {/* Living above your means outranks any single category being over,
                   and it is invisible to the per-category checks, which only read
@@ -425,6 +468,24 @@ export const Home = memo(function Home({ categories, onEdit, onMore, active, onS
                       )}
                     </span>
                   </div>
+                </li>
+              )}
+              {/* Category budgets that do not fit the locked budget: something
+                  to fix whatever the hero reads. Budget says the same amount. */}
+              {budgetsOver && (
+                <li className="row-sep" onClick={onMore}>
+                  <button type="button" className="traj-row home-row row-press">
+                    <span className="cat-tile">
+                      <Icon name="lock" size={18} />
+                    </span>
+                    <span className="traj-main">
+                      <span className="traj-name">{BUDGETS_TOO_MUCH}</span>
+                      <span className="traj-meta muted">
+                        <Parts parts={budgetsTooMuch(fit.over, fit.cap)} />
+                      </span>
+                    </span>
+                    <Icon name="chevron" size={14} className="chev" />
+                  </button>
                 </li>
               )}
               {attention.map(renderAttention)}

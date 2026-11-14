@@ -11,6 +11,7 @@ import { rentDate } from '../../lib/bankRules'
 import { brand } from '../../lib/brand'
 import { brokerageEnabled, syncBrokerages } from '../../lib/brokerage'
 import { merchantInfo } from '../../lib/merchants'
+import { planCanSave } from '../../lib/planStore'
 import xcconfig from '../../../ios/PublicApp.xcconfig?raw'
 
 afterEach(() => localStorage.clear())
@@ -21,6 +22,10 @@ describe('the swapped modules', () => {
     expect(banksEnabled).toBe(true)
     expect(brokerageEnabled).toBe(false)
     await expect(syncBrokerages()).resolves.toBe(0)
+  })
+
+  it('keeps the savings plan on the device, with no account to ask', async () => {
+    await expect(planCanSave()).resolves.toBe(true)
   })
 
   it('takes its name from the one place it is written, and asks no one to sign in', () => {

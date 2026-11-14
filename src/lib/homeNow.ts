@@ -1,6 +1,8 @@
 import { db } from '../db/db'
 import { todayISO } from './dates'
 import { homeDays, homeFigures, homeHistoryFrom } from './homeFigures'
+import { getPlan } from './planCache'
+import { capInForce } from './savingsPlan'
 
 /** Home's figures for the live month, whichever month Home is showing, from the rows Home reads. */
 export async function homeNow() {
@@ -15,5 +17,6 @@ export async function homeNow() {
       db.categories.filter((c) => !c.deleted).toArray(),
     ]),
   )
-  return { month, dayOfMonth, daysInMonth, cats, d: homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth }) }
+  const cap = capInForce(getPlan(), today)
+  return { month, dayOfMonth, daysInMonth, cats, d: homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth, cap }) }
 }

@@ -3,6 +3,8 @@ import { supabase } from '../db/supabase'
 import { defaultCategories } from '../db/seed'
 import { oneRowPerUid } from '../lib/ledger'
 import { builtInKey } from '../lib/categorize'
+import { clearSavingsPlan } from '../lib/planCache'
+import { loadSavingsPlan } from '../lib/planStore'
 import { clearUserRules } from '../lib/userRules'
 import { institutionsMatch } from '../lib/institutions'
 import { loadMerchantRules } from './merchantRules'
@@ -992,6 +994,7 @@ async function runSync(): Promise<SyncResult> {
     if (last && last !== user.id) {
       await wipeLocalLedger()
       void loadMerchantRules() // this account's own rules, not the last one's
+      void loadSavingsPlan() // and its own savings plan: a load that landed before the wipe was cleared with it
     }
     writeLastUser(user.id)
     const accounts = await pull(user.id)
@@ -1062,6 +1065,10 @@ async function wipeLocalLedger(): Promise<void> {
     }
   }
   clearUserRules()
+  // The plan goes exactly when the ledger it measures goes, and never otherwise:
+  // not on the SIGNED_OUT event below, which also fires with no tap here and
+  // leaves every row on the device.
+  clearSavingsPlan()
 }
 
 // Debounced trigger for local edits (skipped while applying remote changes).

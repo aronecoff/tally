@@ -5,6 +5,7 @@ import { money, toCents } from './format'
 import type { HomeFigures } from './homeFigures'
 import { homeNow } from './homeNow'
 import { hasNative, native } from './native'
+import { subscribePlan } from './planCache'
 
 /**
  * Notifications when the live month crosses 80% and 100% of a budget, and a weekly
@@ -165,6 +166,8 @@ export function startBudgetAlerts(): void {
   if (started || !hasNative()) return
   started = true
   Dexie.on('storagemutated', mark)
+  // A change to the savings plan moves the month's lines and is not a write to the ledger.
+  subscribePlan(mark)
   document.addEventListener('visibilitychange', () => {
     // Back after a while it can be a new month. Leaving sends what has not gone yet.
     if (document.visibilityState === 'visible' || timer !== undefined) enqueue()

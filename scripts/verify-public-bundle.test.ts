@@ -87,6 +87,19 @@ describe('the public bundle gate', () => {
     expect(existsSync(join(dist(), '.verified'))).toBe(false)
   })
 
+  it("stops a bundle that names the cloud's savings plan table", () => {
+    writeFileSync(join(dist(), 'app.js'), `const name = "${NAME}", table = "savings_plan"`)
+    const { code, output } = run()
+    expect(code).toBe(1)
+    expect(output).toContain('app.js: /savings_plan/i')
+    expect(existsSync(join(dist(), '.verified'))).toBe(false)
+  })
+
+  it("leaves the plan's own key on the device, which the public app keeps", () => {
+    writeFileSync(join(dist(), 'keys.js'), 'const k = "tally:savingsPlan:v1"')
+    expect(run()).toMatchObject({ code: 0 })
+  })
+
   it('leaves the identifiers that keep that word on purpose', () => {
     writeFileSync(join(dist(), 'keys.js'), 'const f = "plainsum-backup", k = "plainsum:rentDating", u = "PlainsumNative", h = webkit.messageHandlers.plainsum')
     expect(run()).toMatchObject({ code: 0 })

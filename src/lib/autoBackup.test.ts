@@ -296,3 +296,21 @@ describe('writeBackupNow', () => {
     expect(writes).toEqual([])
   })
 })
+
+describe('a change to the savings plan', () => {
+  it('is noticed with no write to the ledger, and in the personal app changes nothing in the file, so no copy is written', async () => {
+    await addRow()
+    ;(await load()).startAutoBackup()
+    const { setPlan } = await import('./planCache')
+    await settle()
+    expect(writes).toHaveLength(1)
+    const build = vi.spyOn(await import('./backup'), 'buildBackup')
+    setPlan({ goal: 800, cap: 3000, locked: true, since: '2031-03', pending: null, updatedAt: 1 })
+    await settle()
+    // It looked, and the file was the same.
+    expect(build).toHaveBeenCalled()
+    expect(writes).toHaveLength(1)
+    setPlan(null)
+    build.mockRestore()
+  })
+})

@@ -1,10 +1,15 @@
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { db, type Category, type TxType } from '../db/db'
+import { BudgetRefused, writeBudgets } from '../lib/budgetWrite'
+import { lockedBudgetLine } from '../lib/copy'
 import { money } from '../lib/format'
 import { haptic } from '../lib/haptics'
+import { useCapInForce } from '../lib/planCache'
+import { budgetFit, checkBudgets } from '../lib/savingsPlan'
 import { useArmed } from '../lib/useArmed'
 import { Icon } from './Icon'
 import { CATEGORY_ICONS, ICON_LABELS } from './iconPaths'
+import { Parts } from './Parts'
 import { Skeleton } from './Skeleton'
 
 interface Props {
@@ -76,6 +81,8 @@ export const Categories = memo(function Categories({ categories }: Props) {
   // One add at a time: a quick second tap while the first is being written
   // would add a second row of the same name.
   const adding = useRef(false)
+  // The savings plan's budget while it is locked: category budgets are how it is split.
+  const cap = useCapInForce()
 
   if (!categories) return <Skeleton variant="list" />
   const all = categories
@@ -84,6 +91,7 @@ export const Categories = memo(function Categories({ categories }: Props) {
   const income = all.filter((c) => c.kind === 'income').sort((a, b) => a.sortOrder - b.sortOrder)
   // The same reduce Home and Budget use: every expense category's monthly budget.
   const totalLimit = expense.reduce((s, c) => s + (c.monthlyBudget || 0), 0)
+  const fit = budgetFit(all, cap)
 
   async function add(kind: TxType) {
     if (adding.current) return
@@ -107,6 +115,7 @@ export const Categories = memo(function Categories({ categories }: Props) {
           open={openId === c.id}
           fresh={freshId === c.id}
           siblings={all}
+          cap={cap}
           movesTo={fallbackName(all, c)}
           onToggle={() => setOpenId((o) => (o === c.id ? null : c.id!))}
           onDeleted={() => setOpenId(null)}
@@ -122,7 +131,9 @@ export const Categories = memo(function Categories({ categories }: Props) {
   return (
     <div className="cats">
       <p className="cats-sub">
-        {totalLimit > 0 ? (
+        {fit ? (
+          <Parts parts={lockedBudgetLine(fit)} />
+        ) : totalLimit > 0 ? (
           <>
             Your budgets total <strong className="num">{money(totalLimit, { trim: true })}</strong> a month.
           </>
@@ -179,13 +190,15 @@ interface RowProps {
   fresh: boolean
   /** Every live category (a rename may not take another one's name). */
   siblings: Category[]
+  /** The locked budget the category budgets may add up to, or null. */
+  cap: number | null
   /** Where this category's transactions go if it is deleted (null = uncategorized). */
   movesTo: string | null
   onToggle: () => void
   onDeleted: () => void
 }
 
-function CategoryRow({ category, showLimit, open, fresh, siblings, movesTo, onToggle, onDeleted }: RowProps) {
+function CategoryRow({ category, showLimit, open, fresh, siblings, cap, movesTo, onToggle, onDeleted }: RowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const editId = useId()
   // Drafts live on the row so the summary previews a name while it is typed.
@@ -232,6 +245,7 @@ function CategoryRow({ category, showLimit, open, fresh, siblings, movesTo, onTo
           name={name}
           limit={limit}
           siblings={siblings}
+          cap={cap}
           movesTo={movesTo}
           onDeleted={onDeleted}
         />
@@ -247,6 +261,7 @@ function CategoryEdit({
   name,
   limit,
   siblings,
+  cap,
   movesTo,
   onDeleted,
 }: {
@@ -256,6 +271,7 @@ function CategoryEdit({
   name: FieldDraft
   limit: FieldDraft
   siblings: Category[]
+  cap: number | null
   movesTo: string | null
   onDeleted: () => void
 }) {
@@ -312,9 +328,23 @@ function CategoryEdit({
       return limit.end(null)
     }
     const next = Math.max(0, n)
-    if (next === category.monthlyBudget) return limit.end(null)
+    if (next === category.monthlyBudget || category.id == null) return limit.end(null)
+    // Under a locked plan the budgets may not add up to more than it. Checked
+    // here against the categories on screen, so the reason shows at once, and
+    // again by the writer against the store.
+    const change = [{ id: category.id, monthlyBudget: next }]
+    const fits = checkBudgets(siblings, change, cap)
+    if (!fits.ok) {
+      setNote(fits.message)
+      return limit.end(null)
+    }
     limit.end(String(next || ''))
-    void patch({ monthlyBudget: next }, limit)
+    writeBudgets(change).catch((e: unknown) => {
+      // Refused by the store (the room went since this screen was drawn), or a
+      // rejected write: either way the field shows what is stored again.
+      if (e instanceof BudgetRefused) setNote(e.message)
+      limit.drop()
+    })
   }
 
   // A legacy icon outside the curated set stays visible (and selected) up front.

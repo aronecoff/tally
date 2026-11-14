@@ -7,8 +7,10 @@ import { cleanMerchant } from '../lib/merchants'
 import { oneOffRows, paceProjector } from '../lib/projection'
 import { awaitingPay } from '../lib/payday'
 import { brand } from '../lib/brand'
-import { beforePayday, OVERSPENT, SAVED } from '../lib/copy'
-import { shiftMonth, monthLabel, dayLabel } from '../lib/dates'
+import { beforePayday, OVERSPENT, SAVED, PLAN_TITLE, planAverage, planCounting, planGoalNote, planInside, planLiveNote, planPartial } from '../lib/copy'
+import { shiftMonth, monthLabel, monthShortLabel, dayLabel } from '../lib/dates'
+import { useSavingsPlan } from '../lib/planCache'
+import { scoreboard } from '../lib/savingsPlan'
 import { useToday } from '../lib/useToday'
 import { useKeyedLiveQuery } from '../lib/useKeyedLiveQuery'
 import { useSettle } from '../lib/motion'
@@ -276,6 +278,11 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
     }
   }, [txns, prevTxns, allTxns, month, isCurrent, dayOfMonth, catById])
 
+  // The savings plan's scoreboard: whole months since the lock began, from the
+  // rows already loaded here (lib/savingsPlan.ts). Null with no locked plan.
+  const plan = useSavingsPlan()
+  const score = useMemo(() => scoreboard(plan, allTxns ?? [], today), [plan, allTxns, today])
+
   // The hero figure settles when it changes (a month step, a sync landing).
   const heroRef = useRef<HTMLElement>(null)
   useSettle(heroRef, '.hero-fig')
@@ -326,6 +333,43 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
     : prevLabel.split(' ')[0]
   const chart = history.length > 1 && <CashflowChart key={month} months={history} focus={month} />
 
+  // The savings plan: the average of whole months, set against the goal. It is
+  // about now, so it stays off a past month, and it holds no figure for the
+  // live month: the hero above is that month, with its own before-payday word.
+  const planSection = (() => {
+    if (!isCurrent || !score) return null
+    const months = score.counted.length
+    const average = score.saved != null && score.gap != null ? planAverage(score.saved, score.gap, months) : null
+    // Which counted months the data only partly covers: the chart's own rule, so the two agree.
+    const partial = score.counted.filter((m) => incomplete(m.month, m.purchases)).length
+    const said = average
+      ? [planInside(score.inside, months, monthShortLabel(score.counted[0].month)), planPartial(partial), planLiveNote(monthShortLabel(nowKey))]
+      : [planCounting(score.liveCounts, monthShortLabel(nowKey), monthShortLabel(score.since))]
+    return (
+      <section className="sect enter">
+        <div className="sect-row an-head">
+          <h2 className="sect-title">{PLAN_TITLE}</h2>
+          <span className="sect-note num">{planGoalNote(score.goal)}</span>
+        </div>
+        {average && (
+          <ul className="an-list">
+            <li className="an-row row-sep">
+              <span className="cat-tile"><Icon name="lock" size={20} /></span>
+              <span className="an-main">
+                <span className="an-line">
+                  <span className="an-name">{average.name}</span>
+                  <span className={`an-fig num${average.tone ? ` ${average.tone}` : ''}`}>{average.fig}</span>
+                </span>
+                <span className="an-sub num">{average.sub}</span>
+              </span>
+            </li>
+          </ul>
+        )}
+        <p className="an-mix-note">{said.filter(Boolean).join(' ')}</p>
+      </section>
+    )
+  })()
+
   // A month with no data keeps the hero's anatomy and left edge (eyebrow, the
   // plain answer, a caption) with no figure, so the chart below stays anchored.
   if (!hasData) {
@@ -337,6 +381,7 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
           {isCurrent && <span className="hero-caption">{brand.insightsEmpty}</span>}
           {chart}
         </section>
+        {planSection}
       </div>
     )
   }
@@ -371,6 +416,7 @@ export const Analysis = memo(function Analysis({ month: liveMonth, categories: l
       </div>
 
       <div className="an-side">
+        {planSection}
         {/* 1 — What changed. Never against a month the data only partly
             covers: June's half month made July read '625% more'. */}
         {(prevIncomplete || a.movers.length > 0 || delta != null) && (

@@ -8,6 +8,7 @@ import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { db } from '../../db/db'
+import { setPlan } from '../../lib/planCache'
 import { hasSampleData } from './sampleData'
 import { seedIfEmpty } from './seed'
 import { FirstRun } from './slots'
@@ -102,6 +103,27 @@ describe('by hand', () => {
     expect(cats.find((c) => c.key === 'groceries')?.monthlyBudget).toBe(1250.5)
     expect(cats.filter((c) => c.key !== 'groceries').every((c) => c.monthlyBudget === 0)).toBe(true)
     expect(flag()).toBe('1')
+  })
+
+  it('with a savings plan already locked, budgets past it are refused with the reason, and none is set', async () => {
+    setPlan({ goal: 200, cap: 900, locked: true, since: '2031-01', pending: null, updatedAt: 1 })
+    try {
+      await start()
+      fireEvent.click(screen.getByRole('button', { name: /Track by hand/ }))
+      fireEvent.change(await screen.findByLabelText('Groceries'), { target: { value: '600' } })
+      fireEvent.change(screen.getByLabelText('Dining'), { target: { value: '400' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      await waitFor(() => expect(sheet()?.querySelector('.sheet-err')?.textContent).toMatch(/^Your budget is locked at \$900 a month, so (Groceries|Dining) can be \$\d+ at most\./))
+      expect((await db.categories.toArray()).every((c) => c.monthlyBudget === 0)).toBe(true)
+      // Inside it, they are set.
+      fireEvent.change(screen.getByLabelText('Dining'), { target: { value: '300' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+      await gone()
+      const cats = await db.categories.toArray()
+      expect([cats.find((c) => c.key === 'groceries')?.monthlyBudget, cats.find((c) => c.key === 'dining')?.monthlyBudget]).toEqual([600, 300])
+    } finally {
+      setPlan(null)
+    }
   })
 
   it('offers only spending categories', async () => {

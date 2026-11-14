@@ -264,6 +264,44 @@ What the merged totals mean:
   - After the merge, an edit made on a device that has not pulled the other's
     newer change replaces the whole row, as for categories and transactions.
 
+### Savings plan
+
+`supabase/migrations/20261112120000_savings_plan.sql` creates `savings_plan`,
+one row per user (owner-only row-level security, select, insert and update
+only, the `keep_newer_row()` last-write-wins trigger). A plan is a goal to save
+each month, a budget for the month, and a lock on that budget. The rules are in
+`src/lib/savingsPlan.ts`, and every screen takes its answer from them:
+
+- While the plan is locked, Home, Budget, the widget and the budget alerts
+  measure the month against the plan's budget, never against what the category
+  budgets add up to. Category budgets are how that budget is split, and no edit
+  on Categories or through Tell Tally can take their total past it. Rows that
+  arrive (a sync pull, a restore) are never refused; if they leave the
+  categories adding up to more, Home, Budget and Categories say by how much.
+- Lowering the budget or raising the goal applies at once. Raising the budget,
+  lowering the goal or turning the lock off is stored as a pending change and
+  comes into force on the 1st of the next month. Nothing has to run that day:
+  every reader folds the pending change in by the date.
+- Insights shows the average of income minus spending over the whole months
+  since the lock began, set against the goal. The live month is never counted
+  until it ends. Each counted month is also judged inside the budget or not,
+  against the budget in force today, except that a raise never reaches back:
+  the months before it keep the budget they had (`past_caps`).
+
+The row is cached on the device, so the plan holds offline and at first paint.
+Changing it needs a connection and a session. Until the table exists the app
+behaves as if there were no plan and Settings offers no group for one, so the
+page can ship before the migration runs. A missing table, a missing backend
+and a session that ended elsewhere never clear a cached plan; only erasing the
+ledger does (signing out on the device, or another account signing in). A
+read never puts an older plan in place of a newer one this device holds, in
+memory or in the storage every tab shares, and a row that is missing is the
+oldest answer of all, since no device deletes one. The public build keeps the
+plan on the device and carries it in its backups.
+
+The lock is a commitment device, not security. Nothing stops an owner changing
+their own row or their device's clock.
+
 ## Roadmap / next steps
 
 1. **Supabase sync** (multi-device). The seam is ready: all reads/writes go

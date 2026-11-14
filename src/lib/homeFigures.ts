@@ -5,6 +5,7 @@ import { monthShortLabel, shiftDayISO, shiftMonth } from './dates'
 import { money, toCents } from './format'
 import { awaitingPay } from './payday'
 import { BILL_MONTHS, flexibleSpend, oneOffRows, paceProjector } from './projection'
+import { budgetsTotal } from './savingsPlan'
 
 /**
  * The figures behind Home, in one place, so anything else that shows them shows
@@ -31,6 +32,12 @@ export interface HomeInput {
   cats: Category[]
   daysInMonth: number
   dayOfMonth: number
+  /**
+   * The savings plan's budget while it is locked (savingsPlan.capInForce). The
+   * month is then measured against it, and category budgets are only how it is
+   * split. Absent or null: against what the category budgets add up to.
+   */
+  cap?: number | null
 }
 
 const EMPTY: Transaction[] = []
@@ -54,7 +61,7 @@ export function homeHistoryFrom(today: string): string {
   return billsFrom < since ? billsFrom : since
 }
 
-export function homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth }: HomeInput) {
+export function homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, dayOfMonth, cap }: HomeInput) {
   // Summed in whole cents and divided once, so a category that is exactly
   // its budget (or exactly refunded to zero) is exactly that, never
   // '$0.00 over' or '−$0.00' from float residue.
@@ -140,7 +147,7 @@ export function homeFigures({ monthTxns, recentTxns, month, cats, daysInMonth, d
   }
   rows.sort((a, b) => b.spent - a.spent)
 
-  const totalBudget = expenseCats.reduce((s, c) => s + toCents(c.monthlyBudget || 0), 0) / 100
+  const totalBudget = cap ?? budgetsTotal(expenseCats)
   const maxDaily = Math.max(1, ...daily)
   // The one-offs outside fixed bills: what the projection takes once.
   const flexLumpC = catSpends.reduce((s, c) => (c.fixed ? s : s + toCents(c.lump)), toCents(uncatLump))

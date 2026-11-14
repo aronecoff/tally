@@ -6,6 +6,8 @@ import { dayLabel, todayISO } from './dates'
 import { money } from './format'
 import { isRefund } from './ledger'
 import { cleanMerchant } from './merchants'
+import { getPlan } from './planCache'
+import { capInForce, checkBudgets, type SavingsPlan } from './savingsPlan'
 import { getUserRules, type UserRule } from './userRules'
 
 /**
@@ -538,6 +540,8 @@ export interface PlanOptions {
   rules?: boolean
   /** The user's saved rules: for "forget", and to name a rule a new one takes over from. */
   userRules?: readonly UserRule[]
+  /** The savings plan as stored, or null for none: a locked one holds category budgets to its own. */
+  plan?: SavingsPlan | null
 }
 
 /** How a row reads in a preview, in two parts so the amount never ellipsizes. */
@@ -705,6 +709,10 @@ export function planCommand(cmd: Command, txns: readonly Transaction[], categori
   if (cmd.kind === 'budget') {
     const before = cmd.category.monthlyBudget || 0
     if (before === cmd.amount) return { ok: false, message: `${cmd.category.name} is already ${money(before, { trim: true })}.` }
+    // Refused here, so it shows at Preview and nothing can be applied.
+    const plan = opts.plan === undefined ? getPlan() : opts.plan
+    const fits = checkBudgets(categories, [{ id: cmd.category.id!, monthlyBudget: cmd.amount }], capInForce(plan, today))
+    if (!fits.ok) return fits
     return {
       ok: true,
       title: `Set ${cmd.category.name} budget to ${money(cmd.amount, { trim: true })}`,

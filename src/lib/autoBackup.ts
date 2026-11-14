@@ -3,6 +3,7 @@ import { defaultCategories } from '../db/seed'
 import { buildBackup, type BackupFile } from './backup'
 import { fingerprint } from './fingerprint'
 import { hasNative, native } from './native'
+import { subscribePlan } from './planCache'
 
 /**
  * A copy of the ledger in the app's Documents folder, written a while after each
@@ -102,6 +103,9 @@ export function startAutoBackup(): void {
   started = true
   // After every commit, for every table of every database, in one place.
   Dexie.on('storagemutated', mark)
+  // The savings plan travels in the public app's copy and is not in the ledger.
+  // Where it is not in the file (Tally), the copy is the same and none is written.
+  subscribePlan(mark)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') void flush()
     else void retry()

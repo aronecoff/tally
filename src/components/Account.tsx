@@ -5,7 +5,7 @@ import { ago } from '../lib/dates'
 import type { ThemePref } from '../lib/useTheme'
 import { Icon } from './Icon'
 import { Sheet } from './Sheet'
-import { AlertRows, AppearanceControl, DataRows, LockRows, RentDating, ScreenRows } from './SettingsParts'
+import { AlertRows, AppearanceControl, DataRows, LockRows, RentDating, SavingsPlanRows, ScreenRows } from './SettingsParts'
 import { useSheetClose } from './sheetStack'
 
 interface Props {
@@ -186,6 +186,7 @@ function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections
 
         {appearance}
         {screens}
+        <SavingsPlanRows />
         {data}
         <LockRows />
         <AlertRows />
@@ -268,6 +269,7 @@ function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections
 
       {appearance}
       {screens}
+      <SavingsPlanRows />
       {data}
       <LockRows />
       <AlertRows />

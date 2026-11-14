@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BackupSheet } from '../../components/BackupSheet'
 import { db, type Transaction } from '../../db/db'
+import { getPlan, setPlan } from '../../lib/planCache'
 import { DOUBLE_TAP_MS } from '../../lib/useArmed'
 
 const reload = vi.fn()
@@ -67,6 +68,39 @@ describe('a file with a stamp that cannot be read', () => {
     expect((await db.transactions.toArray()).map((t) => t.uid)).toEqual(['now-1', 'now-2'])
     expect(written).toEqual([])
     expect(reload).not.toHaveBeenCalled()
+  })
+})
+
+describe('replacing with a locked savings plan on this phone', () => {
+  const mine = { goal: 800, cap: 3000, locked: true, since: '2031-03', pending: null, updatedAt: 5000 }
+  afterEach(() => void setPlan(null))
+
+  it('says the plan stays locked as it is, before anything is replaced', async () => {
+    setPlan(mine)
+    await review()
+    expect([...sheet().querySelectorAll('.sheet-note')].map((p) => p.textContent)).toContain('Your savings plan stays locked as it is.')
+  })
+
+  it('and it does stay, through the restore', async () => {
+    vi.useFakeTimers({ toFake: ['performance'] })
+    setPlan(mine)
+    await review()
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }))
+    await act(async () => {
+      vi.advanceTimersByTime(DOUBLE_TAP_MS + 1)
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Tap again to replace' }))
+    await waitFor(() => expect(reload).toHaveBeenCalledOnce())
+    expect(getPlan()).toEqual(mine)
+  })
+
+  it('says nothing of it with no plan, or with the lock off', async () => {
+    await review()
+    expect(sheet().textContent).not.toContain('savings plan')
+    cleanup()
+    setPlan({ ...mine, locked: false, since: null })
+    await review()
+    expect(sheet().textContent).not.toContain('savings plan')
   })
 })
 

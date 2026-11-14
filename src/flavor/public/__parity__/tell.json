@@ -1,0 +1,124 @@
+{
+  "parsed": {
+    "ok": true,
+    "command": {
+      "kind": "budget",
+      "category": {
+        "id": 3,
+        "uid": "cat-3",
+        "name": "Dining",
+        "icon": "utensils",
+        "color": "#fff",
+        "kind": "expense",
+        "monthlyBudget": 220.5,
+        "sortOrder": 3,
+        "updatedAt": 1,
+        "deleted": false
+      },
+      "amount": 300
+    }
+  },
+  "plan": {
+    "ok": true,
+    "title": "Set Dining budget to $300",
+    "rows": [],
+    "others": 0,
+    "budget": {
+      "category": {
+        "id": 3,
+        "uid": "cat-3",
+        "name": "Dining",
+        "icon": "utensils",
+        "color": "#fff",
+        "kind": "expense",
+        "monthlyBudget": 220.5,
+        "sortOrder": 3,
+        "updatedAt": 1,
+        "deleted": false
+      },
+      "before": 220.5,
+      "after": 300
+    }
+  },
+  "applied": {
+    "rows": [],
+    "budget": {
+      "id": 3,
+      "before": 220.5
+    }
+  },
+  "afterApply": [
+    {
+      "id": 1,
+      "monthlyBudget": 1200,
+      "updatedAt": 1
+    },
+    {
+      "id": 2,
+      "monthlyBudget": 450,
+      "updatedAt": 1
+    },
+    {
+      "id": 3,
+      "monthlyBudget": 300,
+      "updatedAt": 1931626805000
+    },
+    {
+      "id": 4,
+      "monthlyBudget": 150,
+      "updatedAt": 1
+    },
+    {
+      "id": 5,
+      "monthlyBudget": 0,
+      "updatedAt": 1
+    },
+    {
+      "id": 8,
+      "monthlyBudget": 0,
+      "updatedAt": 1
+    },
+    {
+      "id": 9,
+      "monthlyBudget": 0,
+      "updatedAt": 1
+    }
+  ],
+  "afterUndo": [
+    {
+      "id": 1,
+      "monthlyBudget": 1200,
+      "updatedAt": 1
+    },
+    {
+      "id": 2,
+      "monthlyBudget": 450,
+      "updatedAt": 1
+    },
+    {
+      "id": 3,
+      "monthlyBudget": 220.5,
+      "updatedAt": 1931626809000
+    },
+    {
+      "id": 4,
+      "monthlyBudget": 150,
+      "updatedAt": 1
+    },
+    {
+      "id": 5,
+      "monthlyBudget": 0,
+      "updatedAt": 1
+    },
+    {
+      "id": 8,
+      "monthlyBudget": 0,
+      "updatedAt": 1
+    },
+    {
+      "id": 9,
+      "monthlyBudget": 0,
+      "updatedAt": 1
+    }
+  ]
+}

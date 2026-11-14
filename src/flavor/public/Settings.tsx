@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Icon } from '../../components/Icon'
-import { AlertRows, AppearanceControl, DataRows, LockRows, RentDating, ScreenRows } from '../../components/SettingsParts'
+import { AlertRows, AppearanceControl, DataRows, LockRows, RentDating, SavingsPlanRows, ScreenRows } from '../../components/SettingsParts'
 import { Sheet } from '../../components/Sheet'
 import { useSheetClose } from '../../components/sheetStack'
 import { bankStatus } from '../../lib/banks'
@@ -75,6 +75,7 @@ function SettingsBody({ pref, setPref, afterRef, onCategories, onBankConnections
     <>
       <AppearanceControl pref={pref} setPref={setPref} />
       <ScreenRows go={go} onCategories={onCategories} onBankConnections={onBankConnections} />
+      <SavingsPlanRows />
       <DataRows go={go} onImport={onImport} onBackups={onBackups} />
       <LockRows />
       <AlertRows />

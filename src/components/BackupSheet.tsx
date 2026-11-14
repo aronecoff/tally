@@ -3,8 +3,10 @@ import {
   BackupError, exportBackup, listBackups, parseBackup, planRestore, readBackup, restoreBackup,
   type BackupEntry, type BackupFile, type Counts, type RestorePlan,
 } from '../lib/backup'
+import { PLAN_STAYS_LOCKED } from '../lib/copy'
 import { decodeText } from '../lib/importFile'
 import { canPickFile, canSaveFile, hasNative } from '../lib/native'
+import { useSavingsPlan } from '../lib/planCache'
 import { useArmed } from '../lib/useArmed'
 import { Icon } from './Icon'
 import { Sheet, SheetActions } from './Sheet'
@@ -157,6 +159,8 @@ function Review({ file, plan, onBack }: Review & { onBack: () => void }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   const [added, setAdded] = useState<Counts | null>(null)
+  // A restore that replaces the ledger never takes a locked savings plan off, and says so.
+  const savings = useSavingsPlan()
 
   const merge = plan.mode === 'merge'
   const total = plan.add.transactions + plan.add.categories + plan.add.accounts
@@ -214,6 +218,7 @@ function Review({ file, plan, onBack }: Review & { onBack: () => void }) {
           {hasNative() && ' A copy of what is here is saved first.'}
         </p>
       )}
+      {!merge && savings?.locked && <p className="sheet-note">{PLAN_STAYS_LOCKED}</p>}
       {failed && <p className="sheet-err">Could not restore. Nothing was changed. Try again.</p>}
 
       <SheetActions>

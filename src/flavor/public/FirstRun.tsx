@@ -6,6 +6,7 @@ import { Sheet, SheetActions } from '../../components/Sheet'
 import { useSheetClose, useSheetDirty } from '../../components/sheetStack'
 import { db } from '../../db/db'
 import { restoreBackup, type BackupFile } from '../../lib/backup'
+import { BudgetRefused, writeBudgets } from '../../lib/budgetWrite'
 import { brand } from './brand'
 import { markOnboarded, needsFirstRun, restoreOffer } from './onboarded'
 import { loadSampleData } from './sampleData'
@@ -200,22 +201,23 @@ function Budgets() {
   const close = useSheetClose()
   const categories = useLiveQuery(() => db.categories.filter((c) => !c.deleted && c.kind === 'expense').sortBy('sortOrder'), [])
   const [typed, setTyped] = useState<Record<number, string>>({})
-  const [failed, setFailed] = useState(false)
+  /** Why the budgets were not saved. */
+  const [failed, setFailed] = useState<string | null>(null)
   useSheetDirty(Object.values(typed).some(Boolean))
 
   async function save() {
-    setFailed(false)
+    setFailed(null)
     const now = Date.now()
+    const changes = Object.entries(typed)
+      .map(([id, value]) => ({ id: Number(id), monthlyBudget: Number(value) }))
+      .filter((c) => c.monthlyBudget > 0)
     try {
-      await db.transaction('rw', db.categories, async () => {
-        for (const [id, value] of Object.entries(typed)) {
-          const n = Number(value)
-          if (n > 0) await db.categories.update(Number(id), { monthlyBudget: n, updatedAt: now })
-        }
-      })
+      // All of them or none. There is normally no savings plan this early; if
+      // one is locked, budgets past it are refused with the reason.
+      await db.transaction('rw', db.categories, () => writeBudgets(changes, { now }))
       close()
-    } catch {
-      setFailed(true)
+    } catch (e) {
+      setFailed(e instanceof BudgetRefused ? e.message : 'Could not save. Try again.')
     }
   }
 
@@ -239,7 +241,7 @@ function Budgets() {
           </label>
         ))}
       </div>
-      {failed && <p className="sheet-err">Could not save. Try again.</p>}
+      {failed && <p className="sheet-err">{failed}</p>}
       <SheetActions>
         <button type="button" className="btn-primary" onClick={() => void save()}>
           Done

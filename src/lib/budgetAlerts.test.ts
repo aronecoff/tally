@@ -451,6 +451,51 @@ describe('When an alert goes', () => {
   })
 })
 
+describe('With a locked savings plan', () => {
+  // The copy the freshly loaded module reads.
+  const lock = async (cap: number) => (await import('./planCache')).setPlan({ goal: 20, cap, locked: true, since: '2031-01', pending: null, updatedAt: 1 })
+  afterEach(async () => void (await import('./planCache')).setPlan(null))
+
+  it("the month's lines are at 80% and 100% of the plan's budget, not of what the categories add up to", async () => {
+    await addCategory(2, 'Rest', 900) // category budgets add up to 1,000
+    ;(await load()).startBudgetAlerts()
+    await lock(200)
+    await spend(2, 159)
+    await settle()
+    expect(posted).toEqual([])
+    await spend(2, 1)
+    await settle()
+    expect(posted).toEqual([{ id: `month-${month()}-80`, title: 'This month reached 80% of budget', body: '$40.00 left of $200.' }])
+    await spend(2, 41)
+    await settle()
+    expect(posted.at(-1)).toEqual({ id: `month-${month()}-100`, title: 'This month is over budget', body: '$1.00 over $200.' })
+  })
+
+  it('locking in a month already past the budget says so once, with no write to the ledger', async () => {
+    await addCategory(2, 'Rest', 900)
+    ;(await load()).startBudgetAlerts()
+    await spend(2, 300)
+    await settle()
+    expect(posted).toEqual([])
+    await lock(200)
+    await settle()
+    expect(posted).toEqual([{ id: `month-${month()}-100`, title: 'This month is over budget', body: '$100.00 over $200.' }])
+    await settle()
+    expect(posted).toHaveLength(1)
+  })
+
+  it("a month whose line has already gone sends nothing more when a lock lands", async () => {
+    await addCategory(2, 'Rest', 900)
+    settings.fired = [`month-${month()}-80`, `month-${month()}-100`]
+    ;(await load()).startBudgetAlerts()
+    await spend(2, 300)
+    await settle()
+    await lock(200)
+    await settle()
+    expect(posted).toEqual([])
+  })
+})
+
 describe('Turning alerts on', () => {
   it('starts from what is true now: lines already passed are not news', async () => {
     await addCategory(2, 'Fun', 100)

@@ -40,6 +40,7 @@ export const SWAPS: Record<string, string> = {
   'src/sync/sync.ts': 'src/flavor/public/sync.ts',
   'src/sync/merchantRules.ts': 'src/flavor/public/merchantRules.ts',
   'src/lib/ruleStore.ts': 'src/flavor/public/ruleStore.ts',
+  'src/lib/planStore.ts': 'src/flavor/public/planStore.ts',
   'src/lib/bankTransport.ts': 'src/flavor/public/bankTransport.ts',
   'src/lib/backupPolicy.ts': 'src/flavor/public/backupPolicy.ts',
   'src/lib/native.ts': 'src/flavor/public/native.ts',

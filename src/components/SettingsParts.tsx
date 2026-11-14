@@ -1,13 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../db/db'
 import { changeLock, lockStatus, type LockStatus } from '../lib/appLock'
 import { banksEnabled } from '../lib/banks'
 import { brand } from '../lib/brand'
 import { alertSettings, changeAlerts, openAlertPermission, type AlertSettings } from '../lib/budgetAlerts'
+import {
+  PLAN_BOTH, PLAN_CANCEL, PLAN_CAP_FIELD, PLAN_GOAL_FIELD, PLAN_LOCK, PLAN_LOCKED_NOTE, PLAN_NOT_A_NUMBER, PLAN_OFF_NOTE, PLAN_SAVE,
+  PLAN_SAVE_AGAIN, PLAN_TITLE, planArmLock, planOverNote, planPendingLines, planSaveLines,
+} from '../lib/copy'
+import { todayISO } from '../lib/dates'
 import { exportTransactions } from '../lib/exportCsv'
+import { money, toCents } from '../lib/format'
 import { canPickFile, canSaveFile } from '../lib/native'
+import { useSavingsPlan } from '../lib/planCache'
+import { loadSavingsPlan, planCanSave, saveSavingsPlan } from '../lib/planStore'
 import { rentDatingOn, setRentDating } from '../lib/prefs'
 import { rovingKeys } from '../lib/pressable'
+import { budgetFit, capInForce, changePlan, isPlanAmount, type PlanChange, type SavingsPlan } from '../lib/savingsPlan'
+import { useArmed } from '../lib/useArmed'
 import type { ThemePref } from '../lib/useTheme'
+import { useToday } from '../lib/useToday'
 import { Icon } from './Icon'
 import { SwitchRow } from './SwitchRow'
 
@@ -321,5 +334,200 @@ export function AlertRows() {
         </p>
       )}
     </>
+  )
+}
+
+/**
+ * What a typed amount says: '$', commas and spaces dropped, as a category's
+ * budget is read. Empty is none. NaN is not a number, and nor is one too large
+ * for the plan to hold (savingsPlan.isPlanAmount).
+ */
+function typedAmount(raw: string): number {
+  const typed = raw.trim()
+  if (typed === '') return 0
+  const n = Number(typed.replace(/[$,\s]/g, '') || NaN)
+  return isPlanAmount(n) ? n : NaN
+}
+
+/**
+ * The savings plan (lib/savingsPlan.ts): what to save each month, the month's
+ * budget, and the lock on it. Nothing is drawn unless this device holds a plan
+ * or one can be saved from here, so where there is neither (signed out, no
+ * backend, or a cloud that has no table for it yet) Settings is as it was.
+ */
+export function SavingsPlanRows() {
+  const plan = useSavingsPlan()
+  const [canSave, setCanSave] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    // The account's plan as it is now, not as this device last saw it.
+    void loadSavingsPlan()
+    void planCanSave().then((ok) => {
+      if (live) setCanSave(ok)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  if (!plan && !canSave) return null
+  return <PlanGroup plan={plan} />
+}
+
+/**
+ * The group itself. The two fields hold drafts and write nothing until Save or
+ * the lock. Turning the lock on takes two taps, and so does a save while it is
+ * on: those are the two places a slip costs a month, so the first tap says what
+ * the second will do. The group is one element in the sheet, marked data-plan,
+ * laid out as the sheet lays out its own children (.sheet-form).
+ */
+function PlanGroup({ plan }: { plan: SavingsPlan | null }) {
+  const today = useToday()
+  // What is typed, or null while a field shows the plan's own amount.
+  const [goalText, setGoalText] = useState<string | null>(null)
+  const [capText, setCapText] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const lockArm = useArmed(6000)
+  const saveArm = useArmed(6000)
+  const sending = useRef(false)
+  const noteId = useId()
+  const categories = useLiveQuery(() => db.categories.filter((c) => !c.deleted).toArray(), [])
+
+  const locked = plan?.locked ?? false
+  const goal = goalText == null ? (plan?.goal ?? 0) : typedAmount(goalText)
+  const cap = capText == null ? (plan?.cap ?? 0) : typedAmount(capText)
+  const unread = Number.isNaN(goal) || Number.isNaN(cap)
+  // Only the fields that differ from the plan in force are sent, so saving a new goal never touches a pending budget.
+  const changed: { goal?: number; cap?: number } = {}
+  if (goalText != null && (Number.isNaN(goal) || toCents(goal) !== toCents(plan?.goal ?? 0))) changed.goal = goal
+  if (capText != null && (Number.isNaN(cap) || toCents(cap) !== toCents(plan?.cap ?? 0))) changed.cap = cap
+  const dirty = changed.goal !== undefined || changed.cap !== undefined
+
+  // A save while locked, tried on the plan in force without writing anything.
+  const dry = locked && dirty && !unread ? changePlan(plan, changed, today) : null
+  const saveLines = saveArm.armed && plan && dry?.ok ? planSaveLines(plan, dry.plan, today) : []
+  const fit = budgetFit(categories ?? [], capInForce(plan, today))
+  // While a first Save tap's lines say what the second will do, they already
+  // name every waiting change it touches: the waiting lines and Cancel step aside.
+  const pending = saveLines.length > 0 ? [] : planPendingLines(plan?.pending ?? null, today)
+
+  /** Send one change. The store works out what it means from the plan of record, and answers with any reason it did not take. */
+  async function send(change: PlanChange) {
+    if (sending.current) return
+    sending.current = true
+    setErr(null)
+    try {
+      const result = await saveSavingsPlan(change)
+      if (!result.ok) return setErr(result.message)
+      setGoalText(null)
+      setCapText(null)
+    } finally {
+      sending.current = false
+    }
+  }
+
+  const type = (set: (v: string) => void) => (v: string) => {
+    set(v)
+    setErr(null)
+    // An armed tap was for the amounts as they were.
+    lockArm.disarm()
+    saveArm.disarm()
+  }
+
+  /** Say why nothing was armed or sent. */
+  function refuse(message: string) {
+    lockArm.disarm()
+    saveArm.disarm()
+    setErr(message)
+  }
+
+  function onLock() {
+    setErr(null)
+    saveArm.disarm()
+    // Turning it off only makes a pending change, which can be cancelled: one tap.
+    if (locked) return void send({ locked: false })
+    if (unread) return refuse(PLAN_NOT_A_NUMBER)
+    if (!(goal > 0 && cap > 0)) return refuse(PLAN_BOTH)
+    // The second tap sends the lock with both amounts, in one change.
+    if (lockArm.arm()) void send({ goal, cap, locked: true })
+  }
+
+  function onSave() {
+    setErr(null)
+    lockArm.disarm()
+    if (unread) return refuse(PLAN_NOT_A_NUMBER)
+    if (!locked) return void send(changed)
+    const tried = changePlan(plan, changed, todayISO())
+    if (!tried.ok) return refuse(tried.message)
+    if (saveArm.arm()) void send(changed)
+  }
+
+  const shown = (n: number | undefined) => (n ? money(n, { trim: true }) : '')
+
+  return (
+    <div className="sheet-form sheet-plan" data-plan="">
+      <span className="sheet-label">{PLAN_TITLE}</span>
+      <div className="field-group">
+        <label className="field-line">
+          <span>{PLAN_GOAL_FIELD}</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="done"
+            autoComplete="off"
+            placeholder="$0"
+            value={goalText ?? shown(plan?.goal)}
+            onChange={(e) => type(setGoalText)(e.target.value)}
+          />
+        </label>
+        <label className="field-line">
+          <span>{PLAN_CAP_FIELD}</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            enterKeyHint="done"
+            autoComplete="off"
+            placeholder="$0"
+            value={capText ?? shown(plan?.cap)}
+            onChange={(e) => type(setCapText)(e.target.value)}
+          />
+        </label>
+      </div>
+      <div className="sheet-group">
+        <SwitchRow icon="lock" label={PLAN_LOCK} on={locked} onChange={onLock} describedBy={noteId} />
+      </div>
+      {/* One thing said at a time, in one live line a screen reader hears: what the
+          second tap will lock or save, else how the lock works. */}
+      <p className="sheet-note" id={noteId} role="status">
+        {lockArm.armed ? planArmLock(cap, goal) : saveLines.length > 0 ? saveLines.join(' ') : locked ? PLAN_LOCKED_NOTE : PLAN_OFF_NOTE}
+      </p>
+      {fit && fit.over > 0 && <p className="sheet-note">{planOverNote(fit.over)}</p>}
+      {pending.map((line) => (
+        <p key={line} className="sheet-note">
+          {line}
+        </p>
+      ))}
+      {pending.length > 0 && (
+        <div className="sheet-group">
+          <button type="button" className="sheet-row" onClick={() => void send({ cancel: true })}>
+            <Icon name="undo" size={18} />
+            <span>{PLAN_CANCEL}</span>
+            <span />
+          </button>
+        </div>
+      )}
+      {err && (
+        <p className="sheet-err" role="alert">
+          {err}
+        </p>
+      )}
+      {/* While the lock is armed its second tap sends the typed amounts too, so Save would only undo the arming. */}
+      {dirty && !lockArm.armed && (
+        <button type="button" className="btn-primary" onClick={onSave}>
+          {saveArm.armed ? PLAN_SAVE_AGAIN : PLAN_SAVE}
+        </button>
+      )}
+    </div>
   )
 }
